@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { 
-  PinIcon, 
   PencilIcon, 
   TrashIcon, 
   GripVerticalIcon 
@@ -127,7 +126,7 @@ const Note: React.FC<NoteProps> = ({
         className="note-drag-handle absolute top-2 left-2 cursor-grab active:cursor-grabbing p-1 rounded z-10"
         onMouseDown={(e) => {
           e.stopPropagation();
-          onDragStart?.(e as any, id);
+          onDragStart?.(e as unknown as React.DragEvent, id);
         }}
       >
         <GripVerticalIcon size={16} className="text-gray-400" />
