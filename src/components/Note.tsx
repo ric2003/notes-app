@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
   PencilIcon, 
   TrashIcon, 
-  GripVerticalIcon 
+  GripVerticalIcon,
+  Paintbrush
 } from 'lucide-react';
 
 export interface NoteProps {
@@ -16,6 +17,7 @@ export interface NoteProps {
   onContentChange?: (id: string, content: string) => void;
   onEditSave?: (id: string) => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
+  onColorChange?: (id: string, color: string) => void;
   className?: string;
 }
 
@@ -30,6 +32,7 @@ const Note: React.FC<NoteProps> = ({
   onContentChange,
   onEditSave,
   onDragStart,
+  onColorChange,
   className = '',
 }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -106,6 +109,14 @@ const Note: React.FC<NoteProps> = ({
     onDelete?.(id);
   };
 
+  const handleColorChange = (e: React.MouseEvent) => {
+    const colors: NoteProps['color'][] = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange'];
+    const currentIndex = colors.indexOf(color || 'blue');
+    const nextIndex = (currentIndex + 1) % colors.length;
+    const nextColor = colors[nextIndex];
+    onColorChange?.(id, nextColor || 'yellow');
+  };
+
   return (
     <div
       className={`
@@ -137,6 +148,13 @@ const Note: React.FC<NoteProps> = ({
         absolute top-2 right-2 flex gap-1 transition-opacity duration-200
         ${isHovered ? 'opacity-100' : 'opacity-0'}
       `}>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleColorChange(e); }}
+          className="p-1.5 bg-white/80 hover:bg-white rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"
+          title="Paint note"
+        >
+          <Paintbrush size={14} className="text-gray-600" />
+        </button>
         <button
           onClick={(e) => { e.stopPropagation(); handleEdit(e); }}
           className="p-1.5 bg-white/80 hover:bg-white rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"

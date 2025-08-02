@@ -148,6 +148,10 @@ export default function Home() {
     deleteNote(noteId)
   }
 
+  function handleColorChange(noteId: string, newColor: string) {
+    updateNoteInDatabase(noteId, { color: newColor })
+  }
+
   function handleDragStart(e: React.DragEvent, noteId: string) {
     setIsDragging(noteId)
   }
@@ -230,6 +234,7 @@ export default function Home() {
               onDelete={handleNoteDelete}
               onContentChange={handleNoteChange}
               onEditSave={() => setEditingNote(null)}
+              onColorChange={handleColorChange}
               onDragStart={handleDragStart}
               className={isDragging === note.id ? 'opacity-50' : ''}
             />
