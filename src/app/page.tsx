@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from "@/lib/supabase"
 import Note, { NoteProps } from "@/components/Note"
-import { PlusIcon } from 'lucide-react'
+import { PlusIcon, PencilIcon } from 'lucide-react'
 
 interface NoteData {
   id: string
@@ -16,7 +16,7 @@ interface NoteData {
 export default function Home() {
   const [notes, setNotes] = useState<NoteData[]>([])
   const [isDragging, setIsDragging] = useState<string | null>(null)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [dragOffset, setDragOffset] = useState({ x: 20, y: 20 })
   const [editingNote, setEditingNote] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -106,11 +106,6 @@ export default function Home() {
     const target = e.target as HTMLElement
     if (target.closest('.note-drag-handle')) {
       setIsDragging(noteId)
-      const rect = target.getBoundingClientRect()
-      setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      })
     }
   }
 
@@ -193,21 +188,29 @@ export default function Home() {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 h-screen w-screen">
       <button 
         onClick={() => createBox(10, 10)}
         className="flex items-center gap-2 mb-4 px-4 py-2 bg-white border border-black rounded-lg cursor-pointer hover:bg-gray-100"
       >
         <PlusIcon className="w-4 h-4" />
+        <PencilIcon className="w-4 h-4" />
         Create Note
       </button>
-      <div 
-        ref={containerRef}
-        className="relative w-full h-[80vh] border border-black rounded-lg overflow-hidden"
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
+              <div 
+          ref={containerRef}
+          className="relative w-full h-[90vh] border border-black rounded-lg overflow-hidden bg-white"
+          style={{
+            backgroundImage: `
+              linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,0,0,0.1) 1px, transparent 1px)
+            `,
+            backgroundSize: '20px 20px'
+          }}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
         {notes.map((note) => (
           <div
             key={note.id}

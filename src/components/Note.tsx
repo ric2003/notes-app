@@ -117,7 +117,7 @@ const Note: React.FC<NoteProps> = ({
       `}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-              onMouseEnter={() => setIsHovered(true)}
+        onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
     >
 
