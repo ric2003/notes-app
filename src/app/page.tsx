@@ -22,6 +22,9 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [lastActivity, setLastActivity] = useState(Date.now());
+  const [pendingUpdates, setPendingUpdates] = useState<
+    Map<string, Partial<NoteData>>
+  >(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
 
   function randomColor() {
@@ -45,7 +48,54 @@ export default function Home() {
     setNotes(data || []);
   }
 
+  async function syncPendingUpdates() {
+    if (pendingUpdates.size === 0) return;
+
+    console.log(`Syncing ${pendingUpdates.size} pending updates...`);
+
+    for (const [noteId, updates] of pendingUpdates.entries()) {
+      try {
+        await supabase.from("notes").update(updates).eq("id", noteId);
+        console.log(`Synced update for note ${noteId}`);
+      } catch (error) {
+        console.error(`Failed to sync update for note ${noteId}:`, error);
+      }
+    }
+
+    // Clear pending updates after syncing
+    setPendingUpdates(new Map());
+  }
+
   async function createBox(x: number, y: number) {
+    // Try to reconnect if not connected
+    if (!isConnected) {
+      console.log(
+        "Not connected, attempting to reconnect before creating note..."
+      );
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      const newSub = setupRealtimeSubscription();
+      setSubscription(newSub);
+
+      // Poll for connection and retry when connected
+      const checkConnection = setInterval(() => {
+        if (isConnected) {
+          clearInterval(checkConnection);
+          createBox(x, y);
+        }
+      }, 500);
+
+      // Cancel after 5 seconds if still not connected
+      setTimeout(() => {
+        clearInterval(checkConnection);
+        if (!isConnected) {
+          console.log("Connection timeout, note creation cancelled");
+        }
+      }, 5000);
+      return;
+    }
+
     const newNote = {
       content: "New Note",
       color: randomColor(),
@@ -76,6 +126,34 @@ export default function Home() {
     noteId: string,
     updates: Partial<NoteData>
   ) {
+    // Check if we're connected before making changes
+    if (!isConnected) {
+      // Try to reconnect first
+      console.log("Not connected, attempting to reconnect...");
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      const newSub = setupRealtimeSubscription();
+      setSubscription(newSub);
+
+      // Poll for connection and retry when connected
+      const checkConnection = setInterval(() => {
+        if (isConnected) {
+          clearInterval(checkConnection);
+          updateNoteInDatabase(noteId, updates);
+        }
+      }, 500);
+
+      // Cancel after 5 seconds if still not connected
+      setTimeout(() => {
+        clearInterval(checkConnection);
+        if (!isConnected) {
+          console.log("Connection timeout, update cancelled");
+        }
+      }, 5000);
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from("notes")
@@ -101,6 +179,35 @@ export default function Home() {
   }
 
   async function deleteNote(noteId: string) {
+    // Try to reconnect if not connected
+    if (!isConnected) {
+      console.log(
+        "Not connected, attempting to reconnect before deleting note..."
+      );
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      const newSub = setupRealtimeSubscription();
+      setSubscription(newSub);
+
+      // Poll for connection and retry when connected
+      const checkConnection = setInterval(() => {
+        if (isConnected) {
+          clearInterval(checkConnection);
+          deleteNote(noteId);
+        }
+      }, 500);
+
+      // Cancel after 5 seconds if still not connected
+      setTimeout(() => {
+        clearInterval(checkConnection);
+        if (!isConnected) {
+          console.log("Connection timeout, note deletion cancelled");
+        }
+      }, 5000);
+      return;
+    }
+
     try {
       const { error } = await supabase.from("notes").delete().eq("id", noteId);
 
@@ -142,10 +249,19 @@ export default function Home() {
     if (isDragging) {
       const note = notes.find((n) => n.id === isDragging);
       if (note) {
-        updateNoteInDatabase(isDragging, {
+        const updates = {
           position_x: note.position_x,
           position_y: note.position_y,
-        });
+        };
+
+        if (isConnected) {
+          // If connected, update database immediately
+          updateNoteInDatabase(isDragging, updates);
+        } else {
+          // If offline, store update for later sync
+          console.log(`Storing pending update for note ${isDragging}`);
+          setPendingUpdates((prev) => new Map(prev.set(isDragging, updates)));
+        }
       }
       setIsDragging(null);
     }
@@ -236,6 +352,10 @@ export default function Home() {
         console.log("Subscription status:", status);
         if (status === "SUBSCRIBED") {
           setIsConnected(true);
+          // Reload notes from database when reconnecting to get latest state
+          loadNotes();
+          // Sync any pending updates that happened while offline
+          syncPendingUpdates();
         } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
           setIsConnected(false);
         }

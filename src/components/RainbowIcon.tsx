@@ -2,13 +2,13 @@ import { LucideIcon } from "lucide-react";
 import React from "react";
 
 const baseRainbow = [
-  "#ef4444",
-  "#f59e0b",
-  "#eab308",
-  "#22c55e",
-  "#3b82f6",
-  "#6366f1",
-  "#a855f7",
+  "#dc2626",
+  "#ea580c",
+  "#ca8a04",
+  "#16a34a",
+  "#2563eb",
+  "#4338ca",
+  "#9333ea",
 ];
 
 interface RainbowIconProps {
