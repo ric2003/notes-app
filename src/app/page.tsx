@@ -12,6 +12,8 @@ interface NoteData {
   color: string;
   position_x: number;
   position_y: number;
+  created_at?: string;
+  user_id?: string;
 }
 
 export default function Home() {
@@ -97,10 +99,11 @@ export default function Home() {
     }
 
     const newNote = {
-      content: "New Note",
+      content: "",
       color: randomColor(),
       position_x: x,
       position_y: y,
+      user_id: null, // Anonymous for now - will be replaced with actual user ID when auth is implemented
     };
 
     try {
@@ -413,6 +416,8 @@ export default function Home() {
               onColorChange={handleColorChange}
               onDragStart={handleDragStart}
               className={isDragging === note.id ? "opacity-50" : ""}
+              createdAt={note.created_at}
+              createdBy={note.user_id || "Anonymous"}
             />
           </div>
         ))}

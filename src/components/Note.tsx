@@ -20,6 +20,8 @@ export interface NoteProps {
   onDragStart?: (e: React.DragEvent, id: string) => void;
   onColorChange?: (id: string, color: string) => void;
   className?: string;
+  createdAt?: string;
+  createdBy?: string;
 }
 
 const Note: React.FC<NoteProps> = ({
@@ -35,9 +37,32 @@ const Note: React.FC<NoteProps> = ({
   onDragStart,
   onColorChange,
   className = "",
+  createdAt,
+  createdBy = "Anonymous",
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "Just now";
+
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) return "Just now";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400)
+      return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800)
+      return `${Math.floor(diffInSeconds / 86400)}d ago`;
+
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+    });
+  };
 
   const colorStyles = {
     yellow: {
@@ -191,7 +216,7 @@ const Note: React.FC<NoteProps> = ({
       </div>
 
       {/* Note Content */}
-      <div className="mt-8 space-y-3">
+      <div className="mt-8 mb-6 space-y-3">
         {isEditing ? (
           <div className="space-y-2">
             <textarea
@@ -213,6 +238,27 @@ const Note: React.FC<NoteProps> = ({
             {content || "Click edit to add content..."}
           </p>
         )}
+      </div>
+
+      {/* Note Footer */}
+      <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-xs">
+        {/* Date */}
+        <div className="flex items-center gap-1 text-gray-500">
+          <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+          <span className="font-medium">{formatDate(createdAt)}</span>
+        </div>
+
+        {/* User */}
+        <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-sm rounded-full px-2 py-1 border border-gray-200/50 shadow-sm">
+          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
+            <span className="text-xs font-bold text-white">
+              {createdBy.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <span className="text-gray-600 font-medium max-w-16 truncate">
+            {createdBy}
+          </span>
+        </div>
       </div>
 
       {/* Bottom Shadow for depth */}
