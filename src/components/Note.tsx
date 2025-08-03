@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   PencilIcon,
   TrashIcon,
@@ -46,20 +46,48 @@ const Note: React.FC<NoteProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [localContent, setLocalContent] = useState(content);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync local content with prop changes (when content comes from database)
+  useEffect(() => {
+    setLocalContent(content);
+  }, [content]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Debounced function to save content to database
+  const debouncedContentChange = useCallback(
+    (newContent: string) => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+
+      debounceTimeoutRef.current = setTimeout(() => {
+        onContentChange?.(id, newContent);
+      }, 500); // 500ms delay
+    },
+    [id, onContentChange]
+  );
 
   const formatDate = (dateString?: string) => {
-    if (!dateString) return "Just now";
+    if (!dateString) return "now";
 
     const date = new Date(dateString);
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    if (diffInSeconds < 60) return "Just now";
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400)
-      return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    if (diffInSeconds < 604800)
-      return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    if (diffInSeconds < 60) return "Now";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d`;
 
     return date.toLocaleDateString("en-US", {
       month: "short",
@@ -115,14 +143,25 @@ const Note: React.FC<NoteProps> = ({
   };
 
   const handleEdit = (e: React.MouseEvent) => {
-    onEdit?.(id);
+    if (isEditing) {
+      handleSaveEdit();
+    } else {
+      onEdit?.(id);
+    }
   };
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onContentChange?.(id, e.target.value);
+    const newContent = e.target.value;
+    setLocalContent(newContent);
+    debouncedContentChange(newContent);
   };
 
   const handleSaveEdit = () => {
+    // Clear any pending debounced calls and save immediately
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+      onContentChange?.(id, localContent);
+    }
     onEditSave?.(id);
   };
 
@@ -198,10 +237,7 @@ const Note: React.FC<NoteProps> = ({
           <RainbowIcon icon={Paintbrush} size={14} />
         </button>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleEdit(e);
-          }}
+          onClick={handleEdit}
           className="p-1.5 bg-white/80 hover:bg-white rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"
           title="Edit note"
         >
@@ -220,17 +256,26 @@ const Note: React.FC<NoteProps> = ({
       </div>
 
       {/* Note Content */}
-      <div className="mt-8 mb-6 space-y-3">
+      <div className="mt-8 mb-6 space-y-3" onClick={handleEdit}>
         {isEditing ? (
           <div className="space-y-2">
             <textarea
-              value={content}
+              value={localContent}
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
               className="w-full h-20 p-2 text-gray-700 text-sm leading-relaxed border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Type your note here..."
               autoFocus
+              ref={(textarea) => {
+                if (textarea) {
+                  // Move cursor to end of text
+                  textarea.setSelectionRange(
+                    textarea.value.length,
+                    textarea.value.length
+                  );
+                }
+              }}
             />
             <div className="flex gap-2 text-xs text-gray-500">
               <span>Ctrl+Enter to save</span>
@@ -239,35 +284,35 @@ const Note: React.FC<NoteProps> = ({
           </div>
         ) : (
           <p className="text-gray-700 text-sm leading-relaxed line-clamp-4">
-            {content || "Click edit to add content..."}
+            {localContent || "Click edit to add content..."}
           </p>
         )}
       </div>
 
       {/* Note Footer */}
-      <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-xs">
+      <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between text-xs">
         {/* Date */}
-        <div className="flex items-center gap-1 text-gray-500">
+        <div className="flex items-center gap-1.5 text-gray-500">
           <span className="font-medium">{formatDate(createdAt)}</span>
           {editedAt && editedAt !== createdAt && (
-            <div className="flex items-center gap-1 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-full px-2 py-0.5 shadow-sm">
-              <Pen size={8} className="text-amber-600" />
-              <span className="font-medium text-amber-700">
-                {formatDate(editedAt)}
+            <div className="flex items-center gap-0.5 bg-white/80 border border-gray-200/60 rounded-full px-1.5 py-0.5">
+              <Pen size={10} className="text-gray-600" />
+              <span className="font-medium text-gray-600 text-[0.6rem]">
+                {`edited ${formatDate(editedAt)}`}
               </span>
             </div>
           )}
         </div>
 
         {/* User */}
-        <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-sm rounded-full px-2 py-1 border border-gray-200/50 shadow-sm">
+        <div className="flex items-center gap-1.5 bg-white/80 backdrop-blur-sm rounded-full px-2 py-1 border border-gray-200/60 shadow-sm">
           <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-            <span className="text-xs font-bold text-white">
+            <span className="text-[0.6rem] font-bold text-white">
               {createdBy.charAt(0).toUpperCase()}
             </span>
           </div>
           <span className="text-gray-600 font-medium max-w-16 truncate">
-            {createdBy.slice(0, 5)}
+            {createdBy}
           </span>
         </div>
       </div>

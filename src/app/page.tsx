@@ -30,6 +30,17 @@ export default function Home() {
   >(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Helper function to ensure unique notes by ID
+  const ensureUniqueNotes = (notesArray: NoteData[]): NoteData[] => {
+    const uniqueMap = new Map<string, NoteData>();
+    notesArray.forEach((note) => {
+      if (!uniqueMap.has(note.id)) {
+        uniqueMap.set(note.id, note);
+      }
+    });
+    return Array.from(uniqueMap.values());
+  };
+
   function randomColor() {
     const colors: NoteProps["color"][] = [
       "blue",
@@ -48,7 +59,12 @@ export default function Home() {
       console.error("Error loading notes:", error);
       return;
     }
-    setNotes(data || []);
+
+    // Ensure unique notes by filtering out duplicates by ID
+    const uniqueNotes = ensureUniqueNotes(data || []);
+
+    console.log(`Loaded ${uniqueNotes.length} unique notes from database`);
+    setNotes(uniqueNotes);
   }
 
   async function syncPendingUpdates() {
@@ -348,7 +364,10 @@ export default function Home() {
 
           if (payload.eventType === "INSERT") {
             const note = payload.new as NoteData;
-            setNotes((prev) => [...prev, note]);
+            setNotes((prev) => {
+              const newNotes = [...prev, note];
+              return ensureUniqueNotes(newNotes);
+            });
           } else if (payload.eventType === "UPDATE") {
             const note = payload.new as NoteData;
             setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
@@ -362,9 +381,7 @@ export default function Home() {
         console.log("Subscription status:", status);
         if (status === "SUBSCRIBED") {
           setIsConnected(true);
-          // Reload notes from database when reconnecting to get latest state
-          loadNotes();
-          // Sync any pending updates that happened while offline
+          // Only reload notes if we don't have any (initial load) or sync pending updates
           syncPendingUpdates();
         } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
           setIsConnected(false);
@@ -389,7 +406,7 @@ export default function Home() {
       </div>
       <div
         ref={containerRef}
-        className="relative w-full h-[90vh] border border-black rounded-lg overflow-hidden bg-white"
+        className="relative w-full h-[90%] border border-black rounded-lg overflow-hidden bg-white"
         style={{
           backgroundImage: `
               linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px),
@@ -401,9 +418,9 @@ export default function Home() {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        {notes.map((note) => (
+        {notes.map((note, index) => (
           <div
-            key={note.id}
+            key={`${note.id}-${index}`}
             className="note-draggable absolute"
             style={{
               transform: `translate3d(${note.position_x}px, ${note.position_y}px, 0)`,
