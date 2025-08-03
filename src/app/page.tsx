@@ -14,6 +14,7 @@ interface NoteData {
   position_y: number;
   created_at?: string;
   user_id?: string;
+  edited_at?: string;
 }
 
 export default function Home() {
@@ -271,7 +272,10 @@ export default function Home() {
   }
 
   function handleNoteChange(noteId: string, content: string) {
-    updateNoteInDatabase(noteId, { content });
+    updateNoteInDatabase(noteId, {
+      content,
+      edited_at: new Date().toISOString(),
+    });
   }
 
   function handleNoteEdit(noteId: string) {
@@ -283,7 +287,10 @@ export default function Home() {
   }
 
   function handleColorChange(noteId: string, newColor: string) {
-    updateNoteInDatabase(noteId, { color: newColor });
+    updateNoteInDatabase(noteId, {
+      color: newColor,
+      edited_at: new Date().toISOString(),
+    });
   }
 
   function handleDragStart(e: React.DragEvent, noteId: string) {
@@ -418,6 +425,7 @@ export default function Home() {
               className={isDragging === note.id ? "opacity-50" : ""}
               createdAt={note.created_at}
               createdBy={note.user_id || "Anonymous"}
+              editedAt={note.edited_at}
             />
           </div>
         ))}

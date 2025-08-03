@@ -4,6 +4,8 @@ import {
   TrashIcon,
   GripVerticalIcon,
   Paintbrush,
+  Icon,
+  Pen,
 } from "lucide-react";
 import RainbowIcon from "./RainbowIcon";
 
@@ -22,6 +24,7 @@ export interface NoteProps {
   className?: string;
   createdAt?: string;
   createdBy?: string;
+  editedAt?: string;
 }
 
 const Note: React.FC<NoteProps> = ({
@@ -39,6 +42,7 @@ const Note: React.FC<NoteProps> = ({
   className = "",
   createdAt,
   createdBy = "Anonymous",
+  editedAt,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -244,8 +248,15 @@ const Note: React.FC<NoteProps> = ({
       <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-xs">
         {/* Date */}
         <div className="flex items-center gap-1 text-gray-500">
-          <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
           <span className="font-medium">{formatDate(createdAt)}</span>
+          {editedAt && editedAt !== createdAt && (
+            <div className="flex items-center gap-1 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-full px-2 py-0.5 shadow-sm">
+              <Pen size={8} className="text-amber-600" />
+              <span className="font-medium text-amber-700">
+                {formatDate(editedAt)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* User */}
@@ -256,7 +267,7 @@ const Note: React.FC<NoteProps> = ({
             </span>
           </div>
           <span className="text-gray-600 font-medium max-w-16 truncate">
-            {createdBy}
+            {createdBy.slice(0, 5)}
           </span>
         </div>
       </div>
