@@ -4,7 +4,6 @@ import {
   TrashIcon,
   GripVerticalIcon,
   Paintbrush,
-  Icon,
   Pen,
 } from "lucide-react";
 import RainbowIcon from "./RainbowIcon";
@@ -19,7 +18,6 @@ export interface NoteProps {
   onDelete?: (id: string) => void;
   onContentChange?: (id: string, content: string) => void;
   onEditSave?: (id: string) => void;
-  onDragStart?: (e: React.DragEvent, id: string) => void;
   onColorChange?: (id: string, color: string) => void;
   className?: string;
   createdAt?: string;
@@ -37,7 +35,6 @@ const Note: React.FC<NoteProps> = ({
   onDelete,
   onContentChange,
   onEditSave,
-  onDragStart,
   onColorChange,
   className = "",
   createdAt,
@@ -45,16 +42,23 @@ const Note: React.FC<NoteProps> = ({
   editedAt,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [localContent, setLocalContent] = useState(content);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync local content with prop changes (when content comes from database)
   useEffect(() => {
     setLocalContent(content);
   }, [content]);
 
-  // Cleanup timeout on unmount
+  // Move cursor to end when editing starts
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      const textarea = textareaRef.current;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }, [isEditing]);
+
   useEffect(() => {
     return () => {
       if (debounceTimeoutRef.current) {
@@ -63,32 +67,34 @@ const Note: React.FC<NoteProps> = ({
     };
   }, []);
 
-  // Debounced function to save content to database
+  // Clear timeout when editing state changes
+  useEffect(() => {
+    if (isEditing && debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+  }, [isEditing]);
+
   const debouncedContentChange = useCallback(
     (newContent: string) => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
-
       debounceTimeoutRef.current = setTimeout(() => {
         onContentChange?.(id, newContent);
-      }, 500); // 500ms delay
+      }, 1000);
     },
     [id, onContentChange]
   );
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "now";
-
     const date = new Date(dateString);
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
     if (diffInSeconds < 60) return "Now";
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
     if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d`;
-
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -131,20 +137,9 @@ const Note: React.FC<NoteProps> = ({
 
   const currentStyle = colorStyles[color] || colorStyles.yellow;
 
-  const handleDragStart = (e: React.DragEvent) => {
-    setIsDragging(true);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", id);
-    onDragStart?.(e, id);
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
-
   const handleEdit = (e: React.MouseEvent) => {
     if (isEditing) {
-      handleSaveEdit();
+      return;
     } else {
       onEdit?.(id);
     }
@@ -153,23 +148,29 @@ const Note: React.FC<NoteProps> = ({
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setLocalContent(newContent);
-    debouncedContentChange(newContent);
+    // Only debounce if we're not in editing mode to avoid blocking
+    if (!isEditing) {
+      debouncedContentChange(newContent);
+    }
   };
 
   const handleSaveEdit = () => {
-    // Clear any pending debounced calls and save immediately
+    // Clear any pending debounced changes
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
-      onContentChange?.(id, localContent);
     }
+    // Save the current content immediately when user finishes editing
+    onContentChange?.(id, localContent);
     onEditSave?.(id);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && e.ctrlKey) {
+    // Only handle specific shortcuts, let everything else pass through
+    if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
       handleSaveEdit();
-    }
-    if (e.key === "Escape") {
+    } else if (e.key === "Escape") {
+      e.preventDefault();
       handleSaveEdit();
     }
   };
@@ -196,35 +197,20 @@ const Note: React.FC<NoteProps> = ({
   return (
     <div
       className={`
-        relative w-64 min-h-48 p-4 rounded-xl border-2 transition-all duration-200
+        relative w-80 min-h-56 p-4 rounded-xl border-2 transition-all duration-200
         ${currentStyle.bg} ${currentStyle.border}
         ${isHovered ? `shadow-lg ${currentStyle.shadow} scale-105` : "shadow-md"}
-        ${isDragging ? "opacity-50 rotate-3" : ""}
         ${className}
       `}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Drag Handle */}
-      <div
-        className="flex flex-row note-drag-handle absolute top-3 left-2 cursor-grab active:cursor-grabbing p-1 rounded z-10"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          onDragStart?.(e as unknown as React.DragEvent, id);
-        }}
-      >
-        <GripVerticalIcon size={16} className="text-gray-400 " />
-        <GripVerticalIcon size={16} className="text-gray-400 -ml-2" />
-      </div>
-
       {/* Action Buttons */}
       <div
         className={`
-        absolute top-2 right-2 flex gap-1 transition-opacity duration-200
-        ${isHovered ? "opacity-100" : "opacity-0"}
-      `}
+          absolute top-2 right-2 flex gap-2 transition-opacity duration-200
+          ${isHovered ? "opacity-100" : "opacity-0"}
+        `}
       >
         <button
           onClick={(e) => {
@@ -234,14 +220,14 @@ const Note: React.FC<NoteProps> = ({
           className="p-1.5 bg-white/80 hover:bg-white rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"
           title="Paint note"
         >
-          <RainbowIcon icon={Paintbrush} size={14} />
+          <RainbowIcon icon={Paintbrush} size={16} />
         </button>
         <button
           onClick={handleEdit}
           className="p-1.5 bg-white/80 hover:bg-white rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"
           title="Edit note"
         >
-          <PencilIcon size={14} className="text-gray-600" />
+          <PencilIcon size={16} className="text-gray-600" />
         </button>
         <button
           onClick={(e) => {
@@ -251,53 +237,47 @@ const Note: React.FC<NoteProps> = ({
           className="p-1.5 bg-white/80 hover:bg-red-50 rounded-full shadow-sm border border-gray-200 transition-all duration-150 hover:scale-110 z-10"
           title="Delete note"
         >
-          <TrashIcon size={14} className="text-red-500" />
+          <TrashIcon size={16} className="text-red-500" />
         </button>
       </div>
 
       {/* Note Content */}
-      <div className="mt-8 mb-6 space-y-3" onClick={handleEdit}>
+      <div className="mt-8 mb-12">
         {isEditing ? (
           <div className="space-y-2">
             <textarea
+              ref={textareaRef}
               value={localContent}
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
-              className="w-full h-20 p-2 text-gray-700 text-sm leading-relaxed border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full h-24 p-2 text-gray-700 leading-relaxed border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               placeholder="Type your note here..."
-              autoFocus
-              ref={(textarea) => {
-                if (textarea) {
-                  // Move cursor to end of text
-                  textarea.setSelectionRange(
-                    textarea.value.length,
-                    textarea.value.length
-                  );
-                }
-              }}
             />
-            <div className="flex gap-2 text-xs text-gray-500">
+            <div className="flex gap-4 text-xs text-gray-500">
               <span>Ctrl+Enter to save</span>
               <span>Esc to cancel</span>
             </div>
           </div>
         ) : (
-          <p className="text-gray-700 text-sm leading-relaxed line-clamp-4">
+          <p
+            className="text-gray-700 leading-relaxed text-sm line-clamp-4 cursor-pointer"
+            onClick={handleEdit}
+          >
             {localContent || "Click edit to add content..."}
           </p>
         )}
       </div>
 
       {/* Note Footer */}
-      <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between text-xs">
+      <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
         {/* Date */}
-        <div className="flex items-center gap-1.5 text-gray-500">
+        <div className="flex items-center gap-2 text-xs text-gray-500">
           <span className="font-medium">{formatDate(createdAt)}</span>
           {editedAt && editedAt !== createdAt && (
-            <div className="flex items-center gap-0.5 bg-white/80 border border-gray-200/60 rounded-full px-1.5 py-0.5">
+            <div className="flex items-center gap-1 bg-white/80 border border-gray-200/60 rounded-full px-2 py-1">
               <Pen size={10} className="text-gray-600" />
-              <span className="font-medium text-gray-600 text-[0.6rem]">
+              <span className="font-medium text-gray-600 text-xs">
                 {`edited ${formatDate(editedAt)}`}
               </span>
             </div>
@@ -305,20 +285,20 @@ const Note: React.FC<NoteProps> = ({
         </div>
 
         {/* User */}
-        <div className="flex items-center gap-1.5 bg-white/80 backdrop-blur-sm rounded-full px-2 py-1 border border-gray-200/60 shadow-sm">
-          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-            <span className="text-[0.6rem] font-bold text-white">
+        <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm rounded-full border border-gray-200/60 shadow-sm px-2 py-1">
+          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
+            <span className="font-bold text-white text-xs">
               {createdBy.charAt(0).toUpperCase()}
             </span>
           </div>
-          <span className="text-gray-600 font-medium max-w-16 truncate">
+          <span className="text-gray-600 font-medium truncate text-xs max-w-16">
             {createdBy}
           </span>
         </div>
       </div>
 
       {/* Bottom Shadow for depth */}
-      <div className="absolute -bottom-1 left-2 right-2 h-1 bg-black/5 rounded-full blur-sm" />
+      <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-black/5 rounded-full blur-sm" />
     </div>
   );
 };

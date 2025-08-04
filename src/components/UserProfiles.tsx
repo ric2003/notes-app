@@ -40,8 +40,8 @@ export default function UserProfiles({
 
   return (
     <div className={`flex items-center ${className}`}>
-      {/* Users Stack - Clean minimal design */}
-      <div className="flex items-center bg-white rounded-full shadow-sm border border-gray-200 px-3 py-2">
+      {/* Users Stack - Glass morphism design */}
+      <div className="flex items-center bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 px-3 py-2">
         {/* Online count */}
         <div className="flex items-center gap-2 mr-3">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -88,12 +88,12 @@ export default function UserProfiles({
       </div>
 
       {/* Separator */}
-      <div className="w-px h-8 bg-gray-200 mx-4"></div>
+      <div className="w-px h-8 bg-gray-200/50 mx-4"></div>
 
       {/* User Profile */}
       <div className="flex items-center">
         {/* Combined profile and name container */}
-        <div className="flex items-center bg-white rounded-full shadow-sm border border-gray-200 pl-1 pr-4 py-1">
+        <div className="flex items-center bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 pl-1 pr-4 py-1">
           <div className="relative mr-3">
             {/* Main avatar with status ring */}
             <div

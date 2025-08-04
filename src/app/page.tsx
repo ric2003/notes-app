@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import Note, { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
+import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
+import NotesCanvas from "@/components/NotesCanvas";
+import ZoomControls from "@/components/ZoomControls";
 import { PlusIcon, PencilIcon } from "lucide-react";
 
 interface NoteData {
@@ -17,7 +20,7 @@ interface NoteData {
   edited_at?: string;
 }
 
-export default function Home() {
+function HomeContent() {
   const [notes, setNotes] = useState<NoteData[]>([]);
   const [isDragging, setIsDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 20, y: 20 });
@@ -28,7 +31,13 @@ export default function Home() {
   const [pendingUpdates, setPendingUpdates] = useState<
     Map<string, Partial<NoteData>>
   >(new Map());
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [touchStartDistance, setTouchStartDistance] = useState(0);
+  const [touchStartZoom, setTouchStartZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { zoom, panX, panY, setPan, setZoom, screenToWorld } = useZoom();
 
   // Helper function to ensure unique notes by ID
   const ensureUniqueNotes = (notesArray: NoteData[]): NoteData[] => {
@@ -85,7 +94,9 @@ export default function Home() {
     setPendingUpdates(new Map());
   }
 
-  async function createBox(x: number, y: number) {
+  async function createBox(screenX: number, screenY: number) {
+    // Convert screen coordinates to world coordinates
+    const worldCoords = screenToWorld(screenX, screenY);
     // Try to reconnect if not connected
     if (!isConnected) {
       console.log(
@@ -101,7 +112,7 @@ export default function Home() {
       const checkConnection = setInterval(() => {
         if (isConnected) {
           clearInterval(checkConnection);
-          createBox(x, y);
+          createBox(screenX, screenY);
         }
       }, 500);
 
@@ -118,8 +129,8 @@ export default function Home() {
     const newNote = {
       content: "",
       color: randomColor(),
-      position_x: x,
-      position_y: y,
+      position_x: worldCoords.x,
+      position_y: worldCoords.y,
       user_id: null, // Anonymous for now - will be replaced with actual user ID when auth is implemented
     };
 
@@ -244,21 +255,79 @@ export default function Home() {
 
   function handleMouseDown(e: React.MouseEvent, noteId: string) {
     const target = e.target as HTMLElement;
-    if (target.closest(".note-drag-handle")) {
+
+    // Check if clicked on drag handle OR if it's not on an interactive element
+    const isDragHandle = target.closest(".note-drag-handle");
+    const isInteractiveElement = target.closest("button, textarea, input");
+
+    if (isDragHandle || (!isInteractiveElement && e.button === 0)) {
+      e.preventDefault();
+      e.stopPropagation();
       setIsDragging(noteId);
+
+      // Calculate drag offset in world coordinates for accurate dragging
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const note = notes.find((n) => n.id === noteId);
+        if (note) {
+          const mouseScreenPos = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          };
+
+          // Convert mouse position to world coordinates
+          const mouseWorldPos = screenToWorld(
+            mouseScreenPos.x,
+            mouseScreenPos.y
+          );
+
+          // Calculate offset in world coordinates
+          setDragOffset({
+            x: mouseWorldPos.x - note.position_x,
+            y: mouseWorldPos.y - note.position_y,
+          });
+        }
+      }
     }
   }
 
   function handleMouseMove(e: React.MouseEvent) {
-    if (isDragging && containerRef.current) {
+    console.log("🖱️ Parent MouseMove:", {
+      isPanning,
+      isDragging,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    });
+
+    if (isPanning) {
+      console.log("🔄 Panning:", {
+        deltaX: e.clientX - lastPanPoint.x,
+        deltaY: e.clientY - lastPanPoint.y,
+        newPanX: panX + (e.clientX - lastPanPoint.x),
+        newPanY: panY + (e.clientY - lastPanPoint.y),
+      });
+      const deltaX = e.clientX - lastPanPoint.x;
+      const deltaY = e.clientY - lastPanPoint.y;
+      setPan(panX + deltaX, panY + deltaY);
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
+    } else if (isDragging && containerRef.current) {
       const containerRect = containerRef.current.getBoundingClientRect();
-      const newX = e.clientX - containerRect.left - dragOffset.x;
-      const newY = e.clientY - containerRect.top - dragOffset.y;
+      const mouseScreenPos = {
+        x: e.clientX - containerRect.left,
+        y: e.clientY - containerRect.top,
+      };
+
+      // Convert to world coordinates and subtract the offset
+      const mouseWorldPos = screenToWorld(mouseScreenPos.x, mouseScreenPos.y);
+      const newPosition = {
+        x: mouseWorldPos.x - dragOffset.x,
+        y: mouseWorldPos.y - dragOffset.y,
+      };
 
       setNotes((prev) =>
         prev.map((note) =>
           note.id === isDragging
-            ? { ...note, position_x: newX, position_y: newY }
+            ? { ...note, position_x: newPosition.x, position_y: newPosition.y }
             : note
         )
       );
@@ -279,12 +348,12 @@ export default function Home() {
           updateNoteInDatabase(isDragging, updates);
         } else {
           // If offline, store update for later sync
-          console.log(`Storing pending update for note ${isDragging}`);
           setPendingUpdates((prev) => new Map(prev.set(isDragging, updates)));
         }
       }
       setIsDragging(null);
     }
+    setIsPanning(false);
   }
 
   function handleNoteChange(noteId: string, content: string) {
@@ -309,8 +378,188 @@ export default function Home() {
     });
   }
 
-  function handleDragStart(e: React.DragEvent, noteId: string) {
-    setIsDragging(noteId);
+  // Add zoom and pan handlers
+  function handleWheel(e: React.WheelEvent) {
+    // Prevent browser zoom and only allow our custom zoom
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Check if this is a pinch gesture (ctrlKey is set on trackpad pinch)
+    if (e.ctrlKey) {
+      // Handle trackpad pinch-to-zoom
+      handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 0.9);
+    } else {
+      // Handle mouse wheel zoom
+      handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
+    }
+  }
+
+  function handleCustomZoom(
+    e: React.WheelEvent,
+    clientX: number,
+    clientY: number,
+    scaleFactor: number
+  ) {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouseX = clientX - rect.left;
+      const mouseY = clientY - rect.top;
+
+      // Zoom centered on mouse/touch position
+      const newZoom = Math.max(0.2, Math.min(5.0, zoom * scaleFactor));
+
+      // Adjust pan to keep mouse position fixed
+      const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
+      const newPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
+
+      setZoom(newZoom);
+      setPan(newPanX, newPanY);
+    }
+  }
+
+  // Touch handlers for mobile/trackpad
+  function handleTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      // Two finger pinch - prevent browser zoom
+      e.preventDefault();
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.sqrt(
+        Math.pow(touch2.clientX - touch1.clientX, 2) +
+          Math.pow(touch2.clientY - touch1.clientY, 2)
+      );
+      setTouchStartDistance(distance);
+      setTouchStartZoom(zoom);
+    }
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (e.touches.length === 2 && touchStartDistance > 0) {
+      // Two finger pinch - prevent browser zoom
+      e.preventDefault();
+      e.stopPropagation();
+
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.sqrt(
+        Math.pow(touch2.clientX - touch1.clientX, 2) +
+          Math.pow(touch2.clientY - touch1.clientY, 2)
+      );
+
+      const scale = distance / touchStartDistance;
+      const newZoom = Math.max(0.2, Math.min(5.0, touchStartZoom * scale));
+
+      // Center zoom between the two touches
+      const centerX = (touch1.clientX + touch2.clientX) / 2;
+      const centerY = (touch1.clientY + touch2.clientY) / 2;
+
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = centerX - rect.left;
+        const mouseY = centerY - rect.top;
+
+        const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
+        const newPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
+
+        setZoom(newZoom);
+        setPan(newPanX, newPanY);
+      }
+    }
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (e.touches.length < 2) {
+      setTouchStartDistance(0);
+      setTouchStartZoom(1);
+    }
+  }
+
+  function handleCanvasMouseDown(e: React.MouseEvent) {
+    console.log("🖱️ Canvas MouseDown:", {
+      button: e.button,
+      ctrlKey: e.ctrlKey,
+      isSpacePressed,
+      target: e.target,
+      currentTarget: e.currentTarget,
+      shouldStartPanning: e.button === 1 || e.button === 0,
+    });
+
+    // Allow panning with left click anywhere on canvas or middle mouse button
+    if (e.button === 1 || e.button === 0) {
+      console.log("🚀 Starting pan!");
+      e.preventDefault();
+      e.stopPropagation();
+      setIsPanning(true);
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
+    }
+  }
+
+  // Handle keyboard shortcuts and prevent browser zoom
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't prevent space if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      const isTyping =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.contentEditable === "true";
+
+      if (e.code === "Space" && !e.repeat && !isTyping) {
+        e.preventDefault();
+        setIsSpacePressed(true);
+      }
+
+      // Prevent browser zoom shortcuts
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "+" || e.key === "-" || e.key === "0")
+      ) {
+        e.preventDefault();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setIsSpacePressed(false);
+        setIsPanning(false);
+      }
+    };
+
+    // Prevent browser zoom on wheel with ctrl/cmd
+    const handleDocumentWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    document.addEventListener("wheel", handleDocumentWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      document.removeEventListener("wheel", handleDocumentWheel);
+    };
+  }, []);
+
+  function handleCanvasClick(e: React.MouseEvent) {
+    // Only create notes with double-click to avoid conflicts with panning
+    if (
+      e.target === e.currentTarget &&
+      !isPanning &&
+      !isDragging &&
+      e.detail === 2
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        createBox(screenX, screenY);
+      }
+    }
   }
 
   useEffect(() => {
@@ -392,61 +641,92 @@ export default function Home() {
   }
 
   return (
-    <div className="p-4 h-screen w-screen">
-      <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={() => createBox(10, 10)}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-black rounded-lg cursor-pointer hover:bg-gray-100"
-        >
-          <PlusIcon className="w-4 h-4" />
-          <PencilIcon className="w-4 h-4" />
-          Create Note
-        </button>
-        <UserProfiles isConnected={isConnected} />
-      </div>
+    <div className="relative h-screen w-screen overflow-hidden prevent-zoom">
+      {/* Full-screen canvas */}
       <div
         ref={containerRef}
-        className="relative w-full h-[90%] border border-black rounded-lg overflow-hidden bg-white"
-        style={{
-          backgroundImage: `
-              linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0,0,0,0.1) 1px, transparent 1px)
-            `,
-          backgroundSize: "20px 20px",
-        }}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        className={`absolute inset-0 prevent-zoom ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
+        onWheel={handleWheel}
+        onMouseDown={handleCanvasMouseDown}
+        onClick={handleCanvasClick}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
-        {notes.map((note, index) => (
-          <div
-            key={`${note.id}-${index}`}
-            className="note-draggable absolute"
-            style={{
-              transform: `translate3d(${note.position_x}px, ${note.position_y}px, 0)`,
-            }}
-            onMouseDown={(e) => handleMouseDown(e, note.id)}
-          >
-            <Note
-              id={note.id}
-              title="Note"
-              content={note.content}
-              color={(note.color as NoteProps["color"]) || "blue"}
-              isEditing={editingNote === note.id}
-              onEdit={handleNoteEdit}
-              onDelete={handleNoteDelete}
-              onContentChange={handleNoteChange}
-              onEditSave={() => setEditingNote(null)}
-              onColorChange={handleColorChange}
-              onDragStart={handleDragStart}
-              className={isDragging === note.id ? "opacity-50" : ""}
-              createdAt={note.created_at}
-              createdBy={note.user_id || "Anonymous"}
-              editedAt={note.edited_at}
-            />
-          </div>
-        ))}
+        <NotesCanvas
+          notes={notes}
+          isDragging={isDragging}
+          editingNote={editingNote}
+          onMouseDown={handleMouseDown}
+          onNoteEdit={handleNoteEdit}
+          onNoteDelete={handleNoteDelete}
+          onNoteChange={handleNoteChange}
+          onColorChange={handleColorChange}
+          onEditSave={() => setEditingNote(null)}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onCanvasMouseDown={handleCanvasMouseDown}
+        />
+      </div>
+
+      {/* Floating controls - Top Left */}
+      <div
+        className="absolute top-4 left-4 z-50 flex flex-col gap-3 prevent-zoom"
+        style={{ transform: "scale(1)", transformOrigin: "top left" }}
+      >
+        <button
+          onClick={() => createBox(screen.width / 2, screen.height / 2)}
+          className="flex items-center gap-3 px-5 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg hover:bg-white hover:shadow-xl hover:scale-105 transition-all duration-200 font-medium text-gray-700"
+        >
+          <PlusIcon className="w-5 h-5" />
+          <span className="hidden sm:inline">Create Note</span>
+        </button>
+      </div>
+
+      {/* Floating controls - Top middle */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-3 prevent-zoom">
+        <ZoomControls notes={notes} />
+      </div>
+
+      {/* Floating controls - Top Right */}
+      <div
+        className="absolute top-4 right-4 z-50 flex flex-col gap-3 items-end prevent-zoom"
+        style={{ transform: "scale(1)", transformOrigin: "top right" }}
+      >
+        <UserProfiles isConnected={isConnected} />
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  const [dimensions, setDimensions] = useState({ width: 1200, height: 800 });
+
+  useEffect(() => {
+    // Set initial dimensions from window
+    setDimensions({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
+
+    // Update dimensions on window resize
+    const handleResize = () => {
+      setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return (
+    <ZoomProvider
+      containerWidth={dimensions.width}
+      containerHeight={dimensions.height}
+    >
+      <HomeContent />
+    </ZoomProvider>
   );
 }
