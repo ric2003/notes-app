@@ -1,11 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import {
-  PencilIcon,
-  TrashIcon,
-  GripVerticalIcon,
-  Paintbrush,
-  Pen,
-} from "lucide-react";
+import { PencilIcon, TrashIcon, Paintbrush, Pen } from "lucide-react";
 import RainbowIcon from "./RainbowIcon";
 
 export interface NoteProps {
@@ -27,7 +21,6 @@ export interface NoteProps {
 
 const Note: React.FC<NoteProps> = ({
   id,
-  title,
   content,
   color = "blue",
   isEditing = false,

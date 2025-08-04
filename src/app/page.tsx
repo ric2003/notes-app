@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import Note, { NoteProps } from "@/components/Note";
+import { RealtimeChannel } from "@supabase/supabase-js";
+import { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
-import { PlusIcon, PencilIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 
 interface NoteData {
   id: string;
@@ -26,8 +27,10 @@ function HomeContent() {
   const [dragOffset, setDragOffset] = useState({ x: 20, y: 20 });
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [subscription, setSubscription] = useState<any>(null);
-  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [subscription, setSubscription] = useState<RealtimeChannel | null>(
+    null
+  );
+  const [, setLastActivity] = useState(Date.now());
   const [pendingUpdates, setPendingUpdates] = useState<
     Map<string, Partial<NoteData>>
   >(new Map());
@@ -564,19 +567,16 @@ function HomeContent() {
 
   useEffect(() => {
     loadNotes();
-    const sub = setupRealtimeSubscription();
+    const sub: RealtimeChannel = setupRealtimeSubscription();
     setSubscription(sub);
 
     // Handle browser tab visibility to maintain connection
     const handleVisibilityChange = () => {
-      if (
-        !document.hidden &&
-        (!subscription || subscription.state !== "SUBSCRIBED")
-      ) {
+      if (!document.hidden && !subscription) {
         // Tab became visible and we're not connected, reconnect
         setTimeout(() => {
           if (subscription) {
-            subscription.unsubscribe();
+            (subscription as RealtimeChannel).unsubscribe();
           }
           const newSub = setupRealtimeSubscription();
           setSubscription(newSub);
@@ -591,12 +591,12 @@ function HomeContent() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (sub) {
-        sub.unsubscribe();
+        (sub as RealtimeChannel).unsubscribe();
       }
     };
   }, []);
 
-  function setupRealtimeSubscription() {
+  function setupRealtimeSubscription(): RealtimeChannel {
     const subscription = supabase
       .channel("notes-changes")
       .on(
