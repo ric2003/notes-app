@@ -1,8 +1,17 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
-import { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  ref,
+  onValue,
+  get,
+  push,
+  set,
+  update as dbUpdate,
+  remove,
+  serverTimestamp,
+} from "firebase/database";
+import { db } from "@/lib/firebase";
 import { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
@@ -27,9 +36,7 @@ function HomeContent() {
   const [dragOffset, setDragOffset] = useState({ x: 20, y: 20 });
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [subscription, setSubscription] = useState<RealtimeChannel | null>(
-    null
-  );
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const [, setLastActivity] = useState(Date.now());
   const [pendingUpdates, setPendingUpdates] = useState<
     Map<string, Partial<NoteData>>
@@ -66,17 +73,37 @@ function HomeContent() {
   }
 
   async function loadNotes() {
-    const { data, error } = await supabase.from("notes").select("*");
-    if (error) {
+    try {
+      const snapshot = await get(ref(db, "notes"));
+      const val = snapshot.val() || {};
+      const loaded: NoteData[] = Object.entries(val).map(([id, data]) => {
+        const d: any = data || {};
+        const createdMs =
+          typeof d.created_at === "number" ? d.created_at : Date.now();
+        const editedMs =
+          typeof d.edited_at === "number" ? d.edited_at : createdMs;
+        return {
+          id,
+          content: d.content ?? "",
+          color: d.color ?? "blue",
+          position_x: d.position_x ?? 0,
+          position_y: d.position_y ?? 0,
+          created_at: new Date(createdMs).toISOString(),
+          user_id: d.user_id ?? undefined,
+          edited_at: new Date(editedMs).toISOString(),
+        } as NoteData;
+      });
+      loaded.sort(
+        (a, b) =>
+          (a.created_at ? Date.parse(a.created_at) : 0) -
+          (b.created_at ? Date.parse(b.created_at) : 0)
+      );
+      const uniqueNotes = ensureUniqueNotes(loaded);
+      console.log(`Loaded ${uniqueNotes.length} unique notes from Realtime DB`);
+      setNotes(uniqueNotes);
+    } catch (error) {
       console.error("Error loading notes:", error);
-      return;
     }
-
-    // Ensure unique notes by filtering out duplicates by ID
-    const uniqueNotes = ensureUniqueNotes(data || []);
-
-    console.log(`Loaded ${uniqueNotes.length} unique notes from database`);
-    setNotes(uniqueNotes);
   }
 
   async function syncPendingUpdates() {
@@ -86,7 +113,11 @@ function HomeContent() {
 
     for (const [noteId, updates] of pendingUpdates.entries()) {
       try {
-        await supabase.from("notes").update(updates).eq("id", noteId);
+        const updatesToWrite: any = { ...updates };
+        if (Object.prototype.hasOwnProperty.call(updatesToWrite, "edited_at")) {
+          updatesToWrite.edited_at = serverTimestamp();
+        }
+        await dbUpdate(ref(db, `notes/${noteId}`), updatesToWrite);
         console.log(`Synced update for note ${noteId}`);
       } catch (error) {
         console.error(`Failed to sync update for note ${noteId}:`, error);
@@ -100,57 +131,34 @@ function HomeContent() {
   async function createBox(screenX: number, screenY: number) {
     // Convert screen coordinates to world coordinates
     const worldCoords = screenToWorld(screenX, screenY);
-    // Try to reconnect if not connected
-    if (!isConnected) {
-      console.log(
-        "Not connected, attempting to reconnect before creating note..."
-      );
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-      const newSub = setupRealtimeSubscription();
-      setSubscription(newSub);
-
-      // Poll for connection and retry when connected
-      const checkConnection = setInterval(() => {
-        if (isConnected) {
-          clearInterval(checkConnection);
-          createBox(screenX, screenY);
-        }
-      }, 500);
-
-      // Cancel after 5 seconds if still not connected
-      setTimeout(() => {
-        clearInterval(checkConnection);
-        if (!isConnected) {
-          console.log("Connection timeout, note creation cancelled");
-        }
-      }, 5000);
-      return;
-    }
-
     const newNote = {
       content: "",
       color: randomColor(),
       position_x: worldCoords.x,
       position_y: worldCoords.y,
-      user_id: null, // Anonymous for now - will be replaced with actual user ID when auth is implemented
-    };
+      user_id: null,
+      created_at: serverTimestamp(),
+      edited_at: serverTimestamp(),
+    } as any;
 
     try {
-      const { data: newNoteData, error } = await supabase
-        .from("notes")
-        .insert(newNote)
-        .select();
-
-      if (error) {
-        console.error("Failed to create note in database:", error.message);
-        return;
-      }
-
-      if (newNoteData) {
-        setNotes((prev) => [...prev, newNoteData[0]]);
-      }
+      const notesRef = ref(db, "notes");
+      const newRef = push(notesRef);
+      await set(newRef, newNote);
+      const newId = newRef.key as string;
+      setNotes((prev) => [
+        ...prev,
+        {
+          id: newId,
+          content: "",
+          color: newNote.color,
+          position_x: newNote.position_x,
+          position_y: newNote.position_y,
+          user_id: undefined,
+          created_at: new Date().toISOString(),
+          edited_at: new Date().toISOString(),
+        },
+      ]);
     } catch (error) {
       console.error("Error creating note:", error);
     }
@@ -160,96 +168,25 @@ function HomeContent() {
     noteId: string,
     updates: Partial<NoteData>
   ) {
-    // Check if we're connected before making changes
-    if (!isConnected) {
-      // Try to reconnect first
-      console.log("Not connected, attempting to reconnect...");
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-      const newSub = setupRealtimeSubscription();
-      setSubscription(newSub);
-
-      // Poll for connection and retry when connected
-      const checkConnection = setInterval(() => {
-        if (isConnected) {
-          clearInterval(checkConnection);
-          updateNoteInDatabase(noteId, updates);
-        }
-      }, 500);
-
-      // Cancel after 5 seconds if still not connected
-      setTimeout(() => {
-        clearInterval(checkConnection);
-        if (!isConnected) {
-          console.log("Connection timeout, update cancelled");
-        }
-      }, 5000);
-      return;
-    }
-
     try {
-      const { data, error } = await supabase
-        .from("notes")
-        .update(updates)
-        .eq("id", noteId)
-        .select();
-
-      if (error) {
-        console.error("Error updating note:", error);
-        return;
+      const updatesToWrite: any = { ...updates };
+      if (Object.prototype.hasOwnProperty.call(updatesToWrite, "edited_at")) {
+        updatesToWrite.edited_at = serverTimestamp();
       }
-
-      if (data) {
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === noteId ? { ...note, ...updates } : note
-          )
-        );
-      }
+      await dbUpdate(ref(db, `notes/${noteId}`), updatesToWrite);
+      setNotes((prev) =>
+        prev.map((note) =>
+          note.id === noteId ? { ...note, ...updates } : note
+        )
+      );
     } catch (error) {
       console.error("Error updating note:", error);
     }
   }
 
   async function deleteNote(noteId: string) {
-    // Try to reconnect if not connected
-    if (!isConnected) {
-      console.log(
-        "Not connected, attempting to reconnect before deleting note..."
-      );
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-      const newSub = setupRealtimeSubscription();
-      setSubscription(newSub);
-
-      // Poll for connection and retry when connected
-      const checkConnection = setInterval(() => {
-        if (isConnected) {
-          clearInterval(checkConnection);
-          deleteNote(noteId);
-        }
-      }, 500);
-
-      // Cancel after 5 seconds if still not connected
-      setTimeout(() => {
-        clearInterval(checkConnection);
-        if (!isConnected) {
-          console.log("Connection timeout, note deletion cancelled");
-        }
-      }, 5000);
-      return;
-    }
-
     try {
-      const { error } = await supabase.from("notes").delete().eq("id", noteId);
-
-      if (error) {
-        console.error("Error deleting note:", error);
-        return;
-      }
-
+      await remove(ref(db, `notes/${noteId}`));
       setNotes((prev) => prev.filter((note) => note.id !== noteId));
     } catch (error) {
       console.error("Error deleting note:", error);
@@ -567,77 +504,58 @@ function HomeContent() {
 
   useEffect(() => {
     loadNotes();
-    const sub: RealtimeChannel = setupRealtimeSubscription();
-    setSubscription(sub);
+    const unsub = setupRealtimeSubscription();
+    unsubscribeRef.current = unsub;
 
-    // Handle browser tab visibility to maintain connection
-    const handleVisibilityChange = () => {
-      if (!document.hidden && !subscription) {
-        // Tab became visible and we're not connected, reconnect
-        setTimeout(() => {
-          if (subscription) {
-            (subscription as RealtimeChannel).unsubscribe();
-          }
-          const newSub = setupRealtimeSubscription();
-          setSubscription(newSub);
-        }, 100);
-      }
-    };
-
-    // Listen for tab visibility changes
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // Cleanup
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (sub) {
-        (sub as RealtimeChannel).unsubscribe();
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
       }
     };
   }, []);
 
-  function setupRealtimeSubscription(): RealtimeChannel {
-    const subscription = supabase
-      .channel("notes-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "notes",
-        },
-        (payload) => {
-          // If we receive any data, we know we're connected
-          setIsConnected(true);
-          setLastActivity(Date.now());
-
-          if (payload.eventType === "INSERT") {
-            const note = payload.new as NoteData;
-            setNotes((prev) => {
-              const newNotes = [...prev, note];
-              return ensureUniqueNotes(newNotes);
-            });
-          } else if (payload.eventType === "UPDATE") {
-            const note = payload.new as NoteData;
-            setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
-          } else if (payload.eventType === "DELETE") {
-            const noteId = payload.old.id;
-            setNotes((prev) => prev.filter((n) => n.id !== noteId));
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log("Subscription status:", status);
-        if (status === "SUBSCRIBED") {
-          setIsConnected(true);
-          // Only reload notes if we don't have any (initial load) or sync pending updates
+  function setupRealtimeSubscription(): () => void {
+    const notesRef = ref(db, "notes");
+    const unsubscribe = onValue(
+      notesRef,
+      (snapshot) => {
+        setIsConnected(true);
+        setLastActivity(Date.now());
+        const val = snapshot.val() || {};
+        const updated: NoteData[] = Object.entries(val).map(([id, data]) => {
+          const d: any = data || {};
+          const createdMs =
+            typeof d.created_at === "number" ? d.created_at : Date.now();
+          const editedMs =
+            typeof d.edited_at === "number" ? d.edited_at : createdMs;
+          return {
+            id,
+            content: d.content ?? "",
+            color: d.color ?? "blue",
+            position_x: d.position_x ?? 0,
+            position_y: d.position_y ?? 0,
+            created_at: new Date(createdMs).toISOString(),
+            user_id: d.user_id ?? undefined,
+            edited_at: new Date(editedMs).toISOString(),
+          } as NoteData;
+        });
+        updated.sort(
+          (a, b) =>
+            (a.created_at ? Date.parse(a.created_at) : 0) -
+            (b.created_at ? Date.parse(b.created_at) : 0)
+        );
+        setNotes(ensureUniqueNotes(updated));
+        if (pendingUpdates.size > 0) {
           syncPendingUpdates();
-        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-          setIsConnected(false);
         }
-      });
-
-    return subscription;
+      },
+      (error) => {
+        console.error("Realtime subscription error:", error);
+        setIsConnected(false);
+      }
+    );
+    return unsubscribe;
   }
 
   return (

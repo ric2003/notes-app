@@ -131,8 +131,9 @@ const Note: React.FC<NoteProps> = ({
   const currentStyle = colorStyles[color] || colorStyles.yellow;
 
   const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isEditing) {
-      return;
+      handleSaveEdit();
     } else {
       onEdit?.(id);
     }
