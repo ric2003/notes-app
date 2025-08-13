@@ -318,20 +318,10 @@ function HomeContent() {
     });
   }
 
-  // Add zoom and pan handlers
   function handleWheel(e: React.WheelEvent) {
-    // Prevent browser zoom and only allow our custom zoom
     e.preventDefault();
     e.stopPropagation();
-
-    // Check if this is a pinch gesture (ctrlKey is set on trackpad pinch)
-    if (e.ctrlKey) {
-      // Handle trackpad pinch-to-zoom
-      handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 0.9);
-    } else {
-      // Handle mouse wheel zoom
-      handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
-    }
+    handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
   }
 
   function handleCustomZoom(
@@ -346,7 +336,7 @@ function HomeContent() {
       const mouseY = clientY - rect.top;
 
       // Zoom centered on mouse/touch position
-      const newZoom = Math.max(0.2, Math.min(5.0, zoom * scaleFactor));
+      const newZoom = Math.max(0.1, Math.min(1.0, zoom * scaleFactor));
 
       // Adjust pan to keep mouse position fixed
       const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);

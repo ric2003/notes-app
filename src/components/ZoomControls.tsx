@@ -16,11 +16,11 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
         onClick={zoomOut}
         className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
         title="Zoom Out"
-        disabled={zoom <= 0.2}
+        disabled={zoom <= 0.1}
       >
         <ZoomOut
           size={16}
-          className={zoom <= 0.2 ? "text-gray-300" : "text-gray-600"}
+          className={zoom <= 0.1 ? "text-gray-300" : "text-gray-600"}
         />
       </button>
 

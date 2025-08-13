@@ -43,9 +43,9 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
   const [panY, setPanYState] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  const MIN_ZOOM = 0.2;
-  const MAX_ZOOM = 5.0;
-  const ZOOM_STEP = 0.25;
+  const MIN_ZOOM = 0.1;
+  const MAX_ZOOM = 1.0;
+  const ZOOM_STEP = 0.15;
 
   const setZoom = useCallback((newZoom: number) => {
     setZoomState(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom)));
@@ -72,8 +72,8 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
 
   const resetZoom = useCallback(() => {
     animateTransition(() => {
-      setZoom(1);
-      setPan(0, 0);
+      setZoom(0.5);
+      setPan(0, 0); //change where it starts when there are users
     });
   }, [setZoom, setPan, animateTransition]);
 
