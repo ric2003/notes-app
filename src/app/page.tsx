@@ -563,7 +563,7 @@ function HomeContent() {
 
       {/* Floating controls - Top Left */}
       <div
-        className="absolute top-4 left-4 z-50 flex flex-col gap-3 prevent-zoom"
+        className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
         style={{ transform: "scale(1)", transformOrigin: "top left" }}
       >
         <button
@@ -573,18 +573,9 @@ function HomeContent() {
           <PlusIcon className="w-5 h-5" />
           <span className="hidden sm:inline">Create Note</span>
         </button>
-      </div>
 
-      {/* Floating controls - Top middle */}
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-3 prevent-zoom">
         <ZoomControls notes={notes} />
-      </div>
 
-      {/* Floating controls - Top Right */}
-      <div
-        className="absolute top-4 right-4 z-50 flex flex-col gap-3 items-end prevent-zoom"
-        style={{ transform: "scale(1)", transformOrigin: "top right" }}
-      >
         <UserProfiles isConnected={isConnected} />
       </div>
     </div>
