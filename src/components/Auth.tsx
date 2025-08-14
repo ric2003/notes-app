@@ -15,8 +15,12 @@ export default function Auth() {
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       alert("User registered!");
-    } catch (error: any) {
-      alert(error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert("An unknown error occurred");
+      }
     }
   };
 
@@ -24,8 +28,12 @@ export default function Auth() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       alert("Logged in!");
-    } catch (error: any) {
-      alert(error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert("An unknown error occurred");
+      }
     }
   };
 

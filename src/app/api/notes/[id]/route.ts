@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/firebase-server";
 import {
   ref,
   get,
@@ -9,6 +9,7 @@ import {
 } from "firebase/database";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type NoteRecord = {
   content: string;

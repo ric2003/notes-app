@@ -15,7 +15,6 @@ import {
   onValue as onDbValue,
   onDisconnect,
   set,
-  update,
   remove,
   serverTimestamp,
 } from "firebase/database";
@@ -32,7 +31,12 @@ export default function UserProfiles({
   const [user, setUser] = useState<User | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<
-    { id: string; name: string; email?: string | null; isAnonymous?: boolean }[]
+    {
+      id: string;
+      name?: string;
+      email?: string | null;
+      isAnonymous?: boolean;
+    }[]
   >([]);
   const [showAuthForm, setShowAuthForm] = useState(false);
   const [email, setEmail] = useState("");
@@ -51,8 +55,9 @@ export default function UserProfiles({
       return;
     }
     const generated =
-      typeof crypto !== "undefined" && (crypto as any).randomUUID
-        ? (crypto as any).randomUUID()
+      typeof crypto !== "undefined" &&
+      (crypto as { randomUUID: () => string }).randomUUID
+        ? (crypto as { randomUUID: () => string }).randomUUID()
         : `anon_${Math.random().toString(36).slice(2)}`;
     window.localStorage.setItem("notesAppSessionId", generated);
     setSessionId(generated);
@@ -132,9 +137,28 @@ export default function UserProfiles({
     const presenceListRef = ref(db, "presence");
     const unsubscribe = onDbValue(presenceListRef, (snapshot) => {
       const val = snapshot.val() || {};
-      const list = Object.keys(val)
-        .map((id) => ({ id, ...(val[id] as any) }))
-        .filter((u) => u && u.online);
+      type PresenceEntry = {
+        id: string;
+        name?: string;
+        email?: string | null;
+        isAnonymous?: boolean;
+        online?: boolean;
+      };
+      const list: PresenceEntry[] = Object.keys(val)
+        .map((id) => {
+          const raw = val[id] as unknown;
+          const entry =
+            typeof raw === "object" && raw !== null
+              ? (raw as {
+                  name?: string;
+                  email?: string | null;
+                  isAnonymous?: boolean;
+                  online?: boolean;
+                })
+              : {};
+          return { id, ...entry } as PresenceEntry;
+        })
+        .filter((u) => !!u && u.online);
       setOnlineUsers(list);
     });
     return () => unsubscribe();
@@ -148,8 +172,12 @@ export default function UserProfiles({
       setEmail("");
       setPassword("");
       alert("User registered!");
-    } catch (error: any) {
-      setErrorMessage(error?.message ?? "Failed to sign up");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Failed to sign up");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -163,8 +191,12 @@ export default function UserProfiles({
       setEmail("");
       setPassword("");
       alert("Logged in!");
-    } catch (error: any) {
-      setErrorMessage(error?.message ?? "Failed to log in");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Failed to log in");
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/firebase-server";
 import { ref, get, push, set, serverTimestamp } from "firebase/database";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type CreateNotePayload = {
   content?: string;
