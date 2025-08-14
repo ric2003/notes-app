@@ -9,6 +9,8 @@ import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
 import { PlusIcon } from "lucide-react";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
 
 interface NoteData {
   id: string;
@@ -39,6 +41,14 @@ function HomeContent() {
   const [touchStartZoom, setTouchStartZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const { zoom, panX, panY, setPan, setZoom, screenToWorld } = useZoom();
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Helper function to ensure unique notes by ID
   const ensureUniqueNotes = (notesArray: NoteData[]): NoteData[] => {
