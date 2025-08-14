@@ -63,27 +63,8 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     [onMouseDown]
   );
 
-  // Grid configuration
   const GRID_SIZE = 20;
 
-  // Dynamic grid based on zoom level
-  const gridStyle = useMemo(() => {
-    const effectiveGridSize = GRID_SIZE * zoom;
-    const opacity = Math.min(0.3, Math.max(0.05, zoom * 0.2));
-
-    if (effectiveGridSize < 8) return {};
-
-    return {
-      backgroundImage: `
-        linear-gradient(rgba(99, 102, 241, ${opacity}) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(99, 102, 241, ${opacity}) 1px, transparent 1px)
-      `,
-      backgroundSize: `${effectiveGridSize}px ${effectiveGridSize}px`,
-      backgroundPosition: `${panX % effectiveGridSize}px ${panY % effectiveGridSize}px`,
-    };
-  }, [zoom, panX, panY]);
-
-  // Enhanced background
   const backgroundStyle = useMemo(() => {
     const baseBackground = `
       radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
@@ -95,7 +76,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     const effectiveGridSize = GRID_SIZE * zoom;
     const opacity = Math.min(0.3, Math.max(0.05, zoom * 0.2));
 
-    if (effectiveGridSize < 8) {
+    if (effectiveGridSize < 5) {
       return {
         background: baseBackground,
       };

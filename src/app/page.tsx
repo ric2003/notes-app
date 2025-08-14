@@ -377,7 +377,7 @@ function HomeContent() {
       );
 
       const scale = distance / touchStartDistance;
-      const newZoom = Math.max(0.2, Math.min(5.0, touchStartZoom * scale));
+      const newZoom = Math.max(0.1, Math.min(1.0, touchStartZoom * scale));
 
       // Center zoom between the two touches
       const centerX = (touch1.clientX + touch2.clientX) / 2;
