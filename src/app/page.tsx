@@ -1,16 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import {
-  ref,
-  onValue,
-  get,
-  push,
-  set,
-  update as dbUpdate,
-  remove,
-  serverTimestamp,
-} from "firebase/database";
+import { ref, onValue } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
@@ -74,32 +65,12 @@ function HomeContent() {
 
   async function loadNotes() {
     try {
-      const snapshot = await get(ref(db, "notes"));
-      const val = snapshot.val() || {};
-      const loaded: NoteData[] = Object.entries(val).map(([id, data]) => {
-        const d: any = data || {};
-        const createdMs =
-          typeof d.created_at === "number" ? d.created_at : Date.now();
-        const editedMs =
-          typeof d.edited_at === "number" ? d.edited_at : createdMs;
-        return {
-          id,
-          content: d.content ?? "",
-          color: d.color ?? "blue",
-          position_x: d.position_x ?? 0,
-          position_y: d.position_y ?? 0,
-          created_at: new Date(createdMs).toISOString(),
-          user_id: d.user_id ?? undefined,
-          edited_at: new Date(editedMs).toISOString(),
-        } as NoteData;
-      });
-      loaded.sort(
-        (a, b) =>
-          (a.created_at ? Date.parse(a.created_at) : 0) -
-          (b.created_at ? Date.parse(b.created_at) : 0)
-      );
+      const res = await fetch("/api/notes", { method: "GET" });
+      if (!res.ok) throw new Error(`Failed to load notes: ${res.status}`);
+      const data = await res.json();
+      const loaded: NoteData[] = Array.isArray(data?.notes) ? data.notes : [];
       const uniqueNotes = ensureUniqueNotes(loaded);
-      console.log(`Loaded ${uniqueNotes.length} unique notes from Realtime DB`);
+      console.log(`Loaded ${uniqueNotes.length} unique notes via API`);
       setNotes(uniqueNotes);
     } catch (error) {
       console.error("Error loading notes:", error);
@@ -113,11 +84,12 @@ function HomeContent() {
 
     for (const [noteId, updates] of pendingUpdates.entries()) {
       try {
-        const updatesToWrite: any = { ...updates };
-        if (Object.prototype.hasOwnProperty.call(updatesToWrite, "edited_at")) {
-          updatesToWrite.edited_at = serverTimestamp();
-        }
-        await dbUpdate(ref(db, `notes/${noteId}`), updatesToWrite);
+        const res = await fetch(`/api/notes/${noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...updates }),
+        });
+        if (!res.ok) throw new Error(`Status ${res.status}`);
         console.log(`Synced update for note ${noteId}`);
       } catch (error) {
         console.error(`Failed to sync update for note ${noteId}:`, error);
@@ -131,34 +103,26 @@ function HomeContent() {
   async function createBox(screenX: number, screenY: number) {
     // Convert screen coordinates to world coordinates
     const worldCoords = screenToWorld(screenX, screenY);
-    const newNote = {
+    const body = {
       content: "",
       color: randomColor(),
       position_x: worldCoords.x,
       position_y: worldCoords.y,
       user_id: null,
-      created_at: serverTimestamp(),
-      edited_at: serverTimestamp(),
-    } as any;
+    };
 
     try {
-      const notesRef = ref(db, "notes");
-      const newRef = push(notesRef);
-      await set(newRef, newNote);
-      const newId = newRef.key as string;
-      setNotes((prev) => [
-        ...prev,
-        {
-          id: newId,
-          content: "",
-          color: newNote.color,
-          position_x: newNote.position_x,
-          position_y: newNote.position_y,
-          user_id: undefined,
-          created_at: new Date().toISOString(),
-          edited_at: new Date().toISOString(),
-        },
-      ]);
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const data = await res.json();
+      const created = data?.note as NoteData | undefined;
+      if (created) {
+        setNotes((prev) => [...prev, created]);
+      }
     } catch (error) {
       console.error("Error creating note:", error);
     }
@@ -169,11 +133,12 @@ function HomeContent() {
     updates: Partial<NoteData>
   ) {
     try {
-      const updatesToWrite: any = { ...updates };
-      if (Object.prototype.hasOwnProperty.call(updatesToWrite, "edited_at")) {
-        updatesToWrite.edited_at = serverTimestamp();
-      }
-      await dbUpdate(ref(db, `notes/${noteId}`), updatesToWrite);
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...updates }),
+      });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
       setNotes((prev) =>
         prev.map((note) =>
           note.id === noteId ? { ...note, ...updates } : note
@@ -186,7 +151,8 @@ function HomeContent() {
 
   async function deleteNote(noteId: string) {
     try {
-      await remove(ref(db, `notes/${noteId}`));
+      const res = await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
       setNotes((prev) => prev.filter((note) => note.id !== noteId));
     } catch (error) {
       console.error("Error deleting note:", error);
@@ -514,7 +480,15 @@ function HomeContent() {
         setLastActivity(Date.now());
         const val = snapshot.val() || {};
         const updated: NoteData[] = Object.entries(val).map(([id, data]) => {
-          const d: any = data || {};
+          const d = data as {
+            content?: string;
+            color?: string;
+            position_x?: number;
+            position_y?: number;
+            created_at?: number;
+            edited_at?: number;
+            user_id?: string | null;
+          };
           const createdMs =
             typeof d.created_at === "number" ? d.created_at : Date.now();
           const editedMs =
