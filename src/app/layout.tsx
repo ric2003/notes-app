@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: siteUrl ? new URL(siteUrl) : undefined,
   title: {
     default: "Live Notes",
     template: "%s | Live Notes",
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    url: siteUrl,
+    url: siteUrl || undefined,
     title: "Live Notes",
     siteName: "Live Notes",
     description: "Interactive, real-time notes canvas with zoom and pan.",
