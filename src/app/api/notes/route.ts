@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-server";
-import { ref, get, push, set, serverTimestamp } from "firebase/database";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -45,10 +43,22 @@ function toIsoStringFromMaybeNumber(value: unknown): string | undefined {
   return undefined;
 }
 
+function buildDbUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || "";
+  const normalized = base.endsWith("/") ? base : `${base}/`;
+  return new URL(path, normalized).toString();
+}
+
 export async function GET() {
   try {
-    const snapshot = await get(ref(db, "notes"));
-    const val = (snapshot.val() || {}) as Record<string, unknown>;
+    const res = await fetch(buildDbUrl("notes.json"), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`RTDB GET failed with status ${res.status}`);
+    }
+    const val = ((await res.json()) || {}) as Record<string, unknown>;
     const notes: ApiNote[] = Object.entries(val).map(([id, data]) => {
       const d = (data ?? {}) as Partial<NoteRecord>;
       const createdIso = toIsoStringFromMaybeNumber(d.created_at);
@@ -90,27 +100,44 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as CreateNotePayload;
 
-    type ServerTimestampValue = ReturnType<typeof serverTimestamp>;
-    const newNote: Omit<NoteRecord, "created_at" | "edited_at"> & {
-      created_at: ServerTimestampValue;
-      edited_at: ServerTimestampValue;
+    // Prepare payload with server-resolved timestamps
+    const payload: Omit<NoteRecord, "created_at" | "edited_at"> & {
+      created_at: { ".sv": "timestamp" };
+      edited_at: { ".sv": "timestamp" };
     } = {
       content: body.content ?? "",
       color: body.color ?? "blue",
       position_x: typeof body.position_x === "number" ? body.position_x : 0,
       position_y: typeof body.position_y === "number" ? body.position_y : 0,
       user_id: body.user_id ?? null,
-      created_at: serverTimestamp(),
-      edited_at: serverTimestamp(),
+      created_at: { ".sv": "timestamp" },
+      edited_at: { ".sv": "timestamp" },
     };
 
-    const notesRef = ref(db, "notes");
-    const newRef = push(notesRef);
-    await set(newRef, newNote);
+    // Create new note to get a generated key
+    const createRes = await fetch(buildDbUrl("notes.json"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!createRes.ok) {
+      throw new Error(`RTDB POST failed with status ${createRes.status}`);
+    }
+    const createData = (await createRes.json()) as { name?: string };
+    const newId = createData.name;
+    if (!newId) {
+      throw new Error("RTDB did not return a generated key");
+    }
 
-    // Read back the saved note so we can return resolved timestamps
-    const saved = await get(newRef);
-    const d = (saved.val() || {}) as Partial<NoteRecord>;
+    // Read back to resolve timestamps
+    const readRes = await fetch(buildDbUrl(`notes/${newId}.json`), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!readRes.ok) {
+      throw new Error(`RTDB GET new note failed with status ${readRes.status}`);
+    }
+    const d = ((await readRes.json()) || {}) as Partial<NoteRecord>;
     const createdIso =
       toIsoStringFromMaybeNumber(d.created_at) ?? new Date().toISOString();
     const editedIso = toIsoStringFromMaybeNumber(d.edited_at) ?? createdIso;
@@ -118,7 +145,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         note: {
-          id: newRef.key,
+          id: newId,
           content: d.content ?? "",
           color: d.color ?? "blue",
           position_x: d.position_x ?? 0,

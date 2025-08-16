@@ -1,12 +1,4 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-server";
-import {
-  ref,
-  get,
-  update as dbUpdate,
-  remove,
-  serverTimestamp,
-} from "firebase/database";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,15 +24,26 @@ function toIsoStringFromMaybeNumber(value: unknown): string | undefined {
   return undefined;
 }
 
+function buildDbUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || "";
+  const normalized = base.endsWith("/") ? base : `${base}/`;
+  return new URL(path, normalized).toString();
+}
+
 export async function GET(_req: Request, context: unknown) {
   try {
     const { id } = (context as { params?: { id?: string } })?.params || {};
-    const noteRef = ref(db, `notes/${id}`);
-    const snapshot = await get(noteRef);
-    if (!snapshot.exists()) {
+    const res = await fetch(buildDbUrl(`notes/${id}.json`), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (res.status === 404) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const d = (snapshot.val() || {}) as Partial<NoteRecord>;
+    if (!res.ok) {
+      throw new Error(`RTDB GET failed with status ${res.status}`);
+    }
+    const d = ((await res.json()) || {}) as Partial<NoteRecord>;
     const createdIso = toIsoStringFromMaybeNumber(d.created_at);
     const editedIso = toIsoStringFromMaybeNumber(d.edited_at);
     return NextResponse.json({
@@ -99,14 +102,29 @@ export async function PATCH(req: Request, context: unknown) {
       );
     }
 
-    updates.edited_at = serverTimestamp();
+    updates.edited_at = { ".sv": "timestamp" };
 
     const { id } = (context as { params?: { id?: string } })?.params || {};
-    await dbUpdate(ref(db, `notes/${id}`), updates);
+    const patchRes = await fetch(buildDbUrl(`notes/${id}.json`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!patchRes.ok) {
+      throw new Error(`RTDB PATCH failed with status ${patchRes.status}`);
+    }
 
     // Read back to return normalized note
-    const snapshot = await get(ref(db, `notes/${id}`));
-    const d = (snapshot.val() || {}) as Partial<NoteRecord>;
+    const readRes = await fetch(buildDbUrl(`notes/${id}.json`), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!readRes.ok) {
+      throw new Error(
+        `RTDB GET after PATCH failed with status ${readRes.status}`
+      );
+    }
+    const d = ((await readRes.json()) || {}) as Partial<NoteRecord>;
     const createdIso =
       toIsoStringFromMaybeNumber(d.created_at) ?? new Date().toISOString();
     const editedIso = toIsoStringFromMaybeNumber(d.edited_at) ?? createdIso;
@@ -144,7 +162,12 @@ export const PUT = PATCH;
 export async function DELETE(_req: Request, context: unknown) {
   try {
     const { id } = (context as { params?: { id?: string } })?.params || {};
-    await remove(ref(db, `notes/${id}`));
+    const res = await fetch(buildDbUrl(`notes/${id}.json`), {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      throw new Error(`RTDB DELETE failed with status ${res.status}`);
+    }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     return NextResponse.json(

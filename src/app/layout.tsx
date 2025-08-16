@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
-const resolvedSiteUrl = siteUrl || "https://live-update-notes.netlify.app";
+const resolvedSiteUrl = siteUrl;
 const verification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
   ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
   : undefined;
 
 export const metadata: Metadata = {
-  metadataBase: siteUrl ? new URL(siteUrl) : undefined,
+  metadataBase: new URL(resolvedSiteUrl),
   applicationName: "Live Notes",
   authors: [{ name: "Live Notes" }],
   creator: "Live Notes",
