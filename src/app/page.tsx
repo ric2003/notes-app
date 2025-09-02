@@ -73,6 +73,10 @@ function HomeContent() {
     return colors[Math.floor(Math.random() * colors.length)];
   }
 
+  // Note dimensions (should match `w-80` and `min-h-56` from `Note.tsx`)
+  const NOTE_WIDTH = 320;
+  const NOTE_HEIGHT = 224;
+
   async function loadNotes() {
     try {
       const res = await fetch("/api/notes", { method: "GET" });
@@ -116,9 +120,10 @@ function HomeContent() {
     const body = {
       content: "",
       color: randomColor(),
-      position_x: worldCoords.x,
-      position_y: worldCoords.y,
-      user_id: null,
+      // Center the note around the screen/world point
+      position_x: worldCoords.x - NOTE_WIDTH / 2,
+      position_y: worldCoords.y - NOTE_HEIGHT / 2,
+      user_id: user?.uid ?? null,
     };
 
     try {
@@ -567,7 +572,14 @@ function HomeContent() {
         style={{ transform: "scale(1)", transformOrigin: "top left" }}
       >
         <button
-          onClick={() => createBox(screen.width / 2, screen.height / 2)}
+          onClick={() => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (rect) {
+              createBox(rect.width / 2, rect.height / 2);
+            } else {
+              createBox(window.innerWidth / 2, window.innerHeight / 2);
+            }
+          }}
           className="flex items-center gap-3 px-5 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg hover:bg-white hover:shadow-xl hover:scale-105 transition-all duration-200 font-medium text-gray-700"
         >
           <PlusIcon className="w-5 h-5" />
