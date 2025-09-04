@@ -89,7 +89,7 @@ export default function UserProfiles({
         setShowAuthForm(false);
         // Remove previous anonymous presence record if it exists
         if (sessionId) {
-          remove(ref(db, `presence/${sessionId}`)).catch(() => {});
+          remove(ref(db, `notes/presence/${sessionId}`)).catch(() => {});
         }
       }
     });
@@ -108,7 +108,7 @@ export default function UserProfiles({
       const id = user?.uid ?? sessionId;
       const name = user?.displayName || user?.email || "Anonymous";
       const emailVal = user?.email ?? null;
-      const presenceRef = ref(db, `presence/${id}`);
+      const presenceRef = ref(db, `notes/presence/${id}`);
 
       // Set online state
       set(presenceRef, {
@@ -134,7 +134,7 @@ export default function UserProfiles({
 
   // Subscribe to presence list
   useEffect(() => {
-    const presenceListRef = ref(db, "presence");
+    const presenceListRef = ref(db, "notes/presence");
     const unsubscribe = onDbValue(presenceListRef, (snapshot) => {
       const val = snapshot.val() || {};
       type PresenceEntry = {
