@@ -13,6 +13,7 @@ interface NoteData {
   created_at?: string;
   user_id?: string;
   edited_at?: string;
+  stars?: Record<string, boolean>;
 }
 
 interface NotesCanvasProps {
@@ -28,6 +29,8 @@ interface NotesCanvasProps {
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseUp: () => void;
   onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  currentUserId?: string;
+  onToggleStar: (noteId: string) => void;
 }
 
 const NotesCanvas: React.FC<NotesCanvasProps> = ({
@@ -43,6 +46,8 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   onMouseMove,
   onMouseUp,
   onCanvasMouseDown,
+  currentUserId,
+  onToggleStar,
 }) => {
   const { zoom, panX, panY, isAnimating } = useZoom();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -212,6 +217,11 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             createdAt={note.created_at}
             createdBy={note.user_id || "Anonymous"}
             editedAt={note.edited_at}
+            isStarred={Boolean(
+              currentUserId && note.stars && note.stars[currentUserId]
+            )}
+            starCount={Object.keys(note.stars || {}).length}
+            onToggleStar={() => onToggleStar(note.id)}
           />
         </div>
       );
@@ -226,6 +236,8 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       onNoteChange,
       onEditSave,
       onColorChange,
+      currentUserId,
+      onToggleStar,
     ]
   );
 

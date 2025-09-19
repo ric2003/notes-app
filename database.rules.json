@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "notes": {
+      ".read": true,
+      "$noteId": {
+        ".read": true,
+        ".write": true
+      },
+      "presence": {
+        ".read": true,
+        "$id": {
+          ".write": true,
+          ".validate": "newData.hasChildren(['id','name','online','last_changed']) && newData.child('id').val() === $id && newData.child('online').isBoolean()"
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "nickname": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 50"
+        },
+        "email": {
+          ".validate": "newData.val() === auth.token.email"
+        },
+        "photoURL": {
+          ".validate": "newData.val() === null || newData.isString()"
+        }
+      }
+      ,
+      "byNickname": {
+        ".read": true,
+        "$lower": {
+          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid && newData.val() === null))",
+          ".validate": "newData.val() === auth.uid || newData.val() === null"
+        }
+      }
+    }
+  }
+}
+
+

@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, AlertTriangle } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 
@@ -21,7 +21,14 @@ interface NoteData {
   created_at?: string;
   user_id?: string;
   edited_at?: string;
+  stars?: Record<string, boolean>;
 }
+
+type ToastItem = {
+  id: number;
+  message: string;
+  type?: "info" | "success" | "warning" | "error";
+};
 
 function HomeContent() {
   const [notes, setNotes] = useState<NoteData[]>([]);
@@ -42,6 +49,19 @@ function HomeContent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { zoom, panX, panY, setPan, setZoom, screenToWorld } = useZoom();
   const [user, setUser] = useState<User | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  function showToast(
+    message: string,
+    type: "info" | "success" | "warning" | "error" = "info",
+    durationMs = 2500
+  ) {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, durationMs);
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -171,6 +191,39 @@ function HomeContent() {
       setNotes((prev) => prev.filter((note) => note.id !== noteId));
     } catch (error) {
       console.error("Error deleting note:", error);
+    }
+  }
+
+  async function toggleStar(noteId: string) {
+    const uid = user?.uid;
+    if (!uid) {
+      showToast("Please log in to star notes.", "warning");
+      return;
+    }
+
+    // Optimistic UI update
+    setNotes((prev) =>
+      prev.map((n) => {
+        if (n.id !== noteId) return n;
+        const currentStars = n.stars || {};
+        const isStarred = !!currentStars[uid];
+        const nextStars = { ...currentStars } as Record<string, boolean>;
+        if (isStarred) {
+          delete nextStars[uid];
+        } else {
+          nextStars[uid] = true;
+        }
+        return { ...n, stars: nextStars };
+      })
+    );
+
+    try {
+      const starRef = ref(db, `notes/${noteId}/stars/${uid}`);
+      await runTransaction(starRef, (current) => {
+        return current ? null : true;
+      });
+    } catch (error) {
+      console.error("Failed to toggle star:", error);
     }
   }
 
@@ -503,6 +556,7 @@ function HomeContent() {
             created_at?: number;
             edited_at?: number;
             user_id?: string | null;
+            stars?: Record<string, boolean>;
           };
           const createdMs =
             typeof d.created_at === "number" ? d.created_at : Date.now();
@@ -517,6 +571,7 @@ function HomeContent() {
             created_at: new Date(createdMs).toISOString(),
             user_id: d.user_id ?? undefined,
             edited_at: new Date(editedMs).toISOString(),
+            stars: d.stars || undefined,
           } as NoteData;
         });
         updated.sort(
@@ -563,6 +618,8 @@ function HomeContent() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onCanvasMouseDown={handleCanvasMouseDown}
+          currentUserId={user?.uid || undefined}
+          onToggleStar={toggleStar}
         />
       </div>
 
@@ -589,6 +646,28 @@ function HomeContent() {
         <ZoomControls notes={notes} />
 
         <UserProfiles isConnected={isConnected} />
+      </div>
+
+      {/* Toasts - Absolute positioned, themed */}
+      <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 px-4">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-sm
+              ${t.type === "success" ? "bg-white/90 border-green-200" : ""}
+              ${t.type === "info" ? "bg-white/90 border-blue-200" : ""}
+              ${t.type === "warning" ? "bg-white/90 border-yellow-200" : ""}
+              ${t.type === "error" ? "bg-white/90 border-red-200" : ""}
+            `}
+          >
+            <div className="w-5 h-5 text-yellow-600">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <span className="text-sm font-medium text-gray-800">
+              {t.message}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

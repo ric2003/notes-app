@@ -11,6 +11,7 @@ type NoteRecord = {
   user_id?: string | null;
   created_at?: number;
   edited_at?: number;
+  stars?: Record<string, boolean>;
 };
 
 function toIsoStringFromMaybeNumber(value: unknown): string | undefined {
@@ -56,6 +57,7 @@ export async function GET(_req: Request, context: unknown) {
         user_id: d.user_id ?? undefined,
         created_at: createdIso,
         edited_at: editedIso ?? createdIso,
+        stars: d.stars ?? undefined,
       },
     });
   } catch (error: unknown) {
@@ -139,6 +141,7 @@ export async function PATCH(req: Request, context: unknown) {
         user_id: d.user_id ?? undefined,
         created_at: createdIso,
         edited_at: editedIso,
+        stars: d.stars ?? undefined,
       },
     });
   } catch (error: unknown) {

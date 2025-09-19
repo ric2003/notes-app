@@ -19,6 +19,7 @@ type NoteRecord = {
   user_id?: string | null;
   created_at?: number;
   edited_at?: number;
+  stars?: Record<string, boolean>;
 };
 
 type ApiNote = {
@@ -30,6 +31,7 @@ type ApiNote = {
   user_id?: string;
   created_at?: string;
   edited_at?: string;
+  stars?: Record<string, boolean>;
 };
 
 function toIsoStringFromMaybeNumber(value: unknown): string | undefined {
@@ -72,6 +74,7 @@ export async function GET() {
         user_id: d.user_id ?? undefined,
         created_at: createdIso,
         edited_at: editedIso ?? createdIso,
+        stars: d.stars ?? undefined,
       };
     });
     notes.sort((a, b) => {
@@ -153,6 +156,7 @@ export async function POST(req: Request) {
           user_id: d.user_id ?? undefined,
           created_at: createdIso,
           edited_at: editedIso,
+          stars: d.stars ?? undefined,
         },
       },
       { status: 201 }

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { PencilIcon, TrashIcon, Paintbrush, Pen } from "lucide-react";
+import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
 import RainbowIcon from "./RainbowIcon";
 
 export interface NoteProps {
@@ -17,6 +17,9 @@ export interface NoteProps {
   createdAt?: string;
   createdBy?: string;
   editedAt?: string;
+  isStarred?: boolean;
+  starCount?: number;
+  onToggleStar?: (id: string) => void;
 }
 
 const Note: React.FC<NoteProps> = ({
@@ -33,6 +36,9 @@ const Note: React.FC<NoteProps> = ({
   createdAt,
   createdBy = "Anonymous",
   editedAt,
+  isStarred = false,
+  starCount = 0,
+  onToggleStar,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [localContent, setLocalContent] = useState(content);
@@ -173,6 +179,11 @@ const Note: React.FC<NoteProps> = ({
     onDelete?.(id);
   };
 
+  const handleToggleStar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleStar?.(id);
+  };
+
   const handleColorChange = (e: React.MouseEvent) => {
     const colors: NoteProps["color"][] = [
       "yellow",
@@ -199,6 +210,27 @@ const Note: React.FC<NoteProps> = ({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
+      {/* Star button + count (Top-left) */}
+      <div className="absolute top-2 left-2 flex items-center gap-1 z-10">
+        <button
+          onClick={handleToggleStar}
+          className={`p-1.5 rounded-full shadow-sm border transition-all duration-150 hover:scale-110 ${
+            isStarred
+              ? "bg-white/90 border-yellow-300"
+              : "bg-white/80 hover:bg-white border-gray-200"
+          }`}
+          title={isStarred ? "Unstar note" : "Star note"}
+        >
+          <Star
+            size={16}
+            className={isStarred ? "text-yellow-500" : "text-gray-500"}
+            fill={isStarred ? "#facc15" : "none"}
+          />
+        </button>
+        <span className="px-2 py-0.5 bg-white/80 backdrop-blur-sm rounded-full border border-gray-200/60 text-xs text-gray-700 font-medium">
+          {starCount}
+        </span>
+      </div>
       {/* Action Buttons */}
       <div
         className={`
