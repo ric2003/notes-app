@@ -9,6 +9,7 @@ type CreateNotePayload = {
   position_x?: number;
   position_y?: number;
   user_id?: string | null;
+  user_name?: string | null;
 };
 
 type NoteRecord = {
@@ -17,6 +18,7 @@ type NoteRecord = {
   position_x: number;
   position_y: number;
   user_id?: string | null;
+  user_name?: string | null;
   created_at?: number;
   edited_at?: number;
   stars?: Record<string, boolean>;
@@ -29,6 +31,7 @@ type ApiNote = {
   position_x: number;
   position_y: number;
   user_id?: string;
+  user_name?: string;
   created_at?: string;
   edited_at?: string;
   stars?: Record<string, boolean>;
@@ -72,6 +75,7 @@ export async function GET() {
         position_x: d.position_x ?? 0,
         position_y: d.position_y ?? 0,
         user_id: d.user_id ?? undefined,
+        user_name: d.user_name ?? undefined,
         created_at: createdIso,
         edited_at: editedIso ?? createdIso,
         stars: d.stars ?? undefined,
@@ -113,6 +117,7 @@ export async function POST(req: Request) {
       position_x: typeof body.position_x === "number" ? body.position_x : 0,
       position_y: typeof body.position_y === "number" ? body.position_y : 0,
       user_id: body.user_id ?? null,
+      user_name: body.user_name ?? null,
       created_at: { ".sv": "timestamp" },
       edited_at: { ".sv": "timestamp" },
     };
@@ -154,6 +159,7 @@ export async function POST(req: Request) {
           position_x: d.position_x ?? 0,
           position_y: d.position_y ?? 0,
           user_id: d.user_id ?? undefined,
+          user_name: d.user_name ?? undefined,
           created_at: createdIso,
           edited_at: editedIso,
           stars: d.stars ?? undefined,

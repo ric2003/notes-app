@@ -12,6 +12,7 @@ interface NoteData {
   position_y: number;
   created_at?: string;
   user_id?: string;
+  user_name?: string;
   edited_at?: string;
   stars?: Record<string, boolean>;
 }
@@ -215,7 +216,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             ${isDraggingThis ? "shadow-2xl" : ""}
           `}
             createdAt={note.created_at}
-            createdBy={note.user_id || "Anonymous"}
+            createdBy={note.user_name || note.user_id || "Anonymous"}
             editedAt={note.edited_at}
             isStarred={Boolean(
               currentUserId && note.stars && note.stars[currentUserId]

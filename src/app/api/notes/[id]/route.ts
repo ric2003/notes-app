@@ -9,6 +9,7 @@ type NoteRecord = {
   position_x: number;
   position_y: number;
   user_id?: string | null;
+  user_name?: string | null;
   created_at?: number;
   edited_at?: number;
   stars?: Record<string, boolean>;
@@ -55,6 +56,7 @@ export async function GET(_req: Request, context: unknown) {
         position_x: d.position_x ?? 0,
         position_y: d.position_y ?? 0,
         user_id: d.user_id ?? undefined,
+        user_name: d.user_name ?? undefined,
         created_at: createdIso,
         edited_at: editedIso ?? createdIso,
         stars: d.stars ?? undefined,
@@ -84,6 +86,7 @@ export async function PATCH(req: Request, context: unknown) {
       position_x: number;
       position_y: number;
       user_id: string | null;
+      user_name: string | null;
       edited_at: string | boolean; // ignored, server managed
     }>;
 
@@ -96,6 +99,8 @@ export async function PATCH(req: Request, context: unknown) {
       updates.position_y = body.position_y;
     if (typeof body.user_id === "string" || body.user_id === null)
       updates.user_id = body.user_id;
+    if (typeof body.user_name === "string" || body.user_name === null)
+      updates.user_name = body.user_name;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
@@ -139,6 +144,7 @@ export async function PATCH(req: Request, context: unknown) {
         position_x: d.position_x ?? 0,
         position_y: d.position_y ?? 0,
         user_id: d.user_id ?? undefined,
+        user_name: d.user_name ?? undefined,
         created_at: createdIso,
         edited_at: editedIso,
         stars: d.stars ?? undefined,

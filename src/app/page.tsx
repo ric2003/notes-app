@@ -20,6 +20,7 @@ interface NoteData {
   position_y: number;
   created_at?: string;
   user_id?: string;
+  user_name?: string;
   edited_at?: string;
   stars?: Record<string, boolean>;
 }
@@ -144,6 +145,7 @@ function HomeContent() {
       position_x: worldCoords.x - NOTE_WIDTH / 2,
       position_y: worldCoords.y - NOTE_HEIGHT / 2,
       user_id: user?.uid ?? null,
+      user_name: user?.displayName || user?.email || null,
     };
 
     try {
@@ -556,6 +558,7 @@ function HomeContent() {
             created_at?: number;
             edited_at?: number;
             user_id?: string | null;
+            user_name?: string | null;
             stars?: Record<string, boolean>;
           };
           const createdMs =
@@ -570,6 +573,7 @@ function HomeContent() {
             position_y: d.position_y ?? 0,
             created_at: new Date(createdMs).toISOString(),
             user_id: d.user_id ?? undefined,
+            user_name: d.user_name ?? undefined,
             edited_at: new Date(editedMs).toISOString(),
             stars: d.stars || undefined,
           } as NoteData;
