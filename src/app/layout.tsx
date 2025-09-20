@@ -148,6 +148,11 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        style={{
+          minHeight: "100dvh",
+          paddingBottom: "env(safe-area-inset-bottom)",
+          overscrollBehaviorY: "contain",
+        }}
       >
         {children}
       </body>

@@ -22,15 +22,15 @@ interface NotesCanvasProps {
   notes: NoteData[];
   isDragging: string | null;
   editingNote: string | null;
-  onMouseDown: (e: React.MouseEvent, noteId: string) => void;
+  onPointerDown: (e: React.PointerEvent, noteId: string) => void;
   onNoteEdit: (noteId: string) => void;
   onNoteDelete: (noteId: string) => void;
   onNoteChange: (noteId: string, content: string) => void;
   onColorChange: (noteId: string, newColor: string) => void;
   onEditSave: () => void;
-  onMouseMove: (e: React.MouseEvent) => void;
-  onMouseUp: () => void;
-  onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+  onCanvasPointerDown?: (e: React.PointerEvent) => void;
   currentUserId?: string;
   onToggleStar: (noteId: string) => void;
 }
@@ -39,15 +39,15 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   notes,
   isDragging,
   editingNote,
-  onMouseDown,
+  onPointerDown,
   onNoteEdit,
   onNoteDelete,
   onNoteChange,
   onColorChange,
   onEditSave,
-  onMouseMove,
-  onMouseUp,
-  onCanvasMouseDown,
+  onPointerMove,
+  onPointerUp,
+  onCanvasPointerDown,
   currentUserId,
   onToggleStar,
 }) => {
@@ -56,19 +56,21 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const [hoveredNote, setHoveredNote] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
 
-  const handleCanvasMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      onCanvasMouseDown?.(e);
+  const handleCanvasPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      onCanvasPointerDown?.(e);
     },
-    [onCanvasMouseDown]
+    [onCanvasPointerDown]
   );
 
-  const handleNoteMouseDown = useCallback(
-    (e: React.MouseEvent, noteId: string) => {
+  const handleNotePointerDown = useCallback(
+    (e: React.PointerEvent, noteId: string) => {
       e.stopPropagation();
-      onMouseDown(e, noteId);
+      // Prevent mouse compatibility events firing
+      e.preventDefault();
+      onPointerDown(e, noteId);
     },
-    [onMouseDown]
+    [onPointerDown]
   );
 
   const GRID_SIZE = 20;
@@ -144,6 +146,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         style={{
           width: `${100 / zoom}%`,
           height: `${100 / zoom}%`,
+          willChange: "transform",
         }}
       >
         {connections}
@@ -161,13 +164,13 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         <div
           key={`${note.id}-${index}`}
           className={`
-          note-container absolute transition-all duration-300 ease-out
+          note-container absolute ${isDraggingThis ? "" : "transition-all duration-300 ease-out"}
           ${isDraggingThis ? "z-50" : "z-10"}
         `}
           style={{
             transform: `
             translate3d(${note.position_x}px, ${note.position_y}px, 0)
-            ${isDraggingThis ? "scale(1.05) rotate(1deg)" : isHovered ? "scale(1.02)" : "scale(1)"}
+            ${isDraggingThis ? "scale(1)" : isHovered ? "scale(1.02)" : "scale(1)"}
           `,
             opacity: isDraggingThis ? 0.95 : 1,
             filter: `
@@ -176,8 +179,9 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
           `,
             cursor: isDraggingThis ? "grabbing" : "grab",
             pointerEvents: "auto",
+            willChange: "transform",
           }}
-          onMouseDown={(e) => handleNoteMouseDown(e, note.id)}
+          onPointerDown={(e) => handleNotePointerDown(e, note.id)}
           onMouseEnter={() => setHoveredNote(note.id)}
           onMouseLeave={() => setHoveredNote(null)}
           onClick={(e) => {
@@ -237,7 +241,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       isDragging,
       hoveredNote,
       editingNote,
-      handleNoteMouseDown,
+      handleNotePointerDown,
       onNoteEdit,
       onNoteDelete,
       onNoteChange,
@@ -254,11 +258,13 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       className="relative w-full h-full overflow-hidden cursor-grab"
       style={{
         ...backgroundStyle,
+        touchAction: "none",
+        willChange: "transform",
       }}
-      onMouseDown={handleCanvasMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
+      onPointerDown={handleCanvasPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
     >
       <div
         className={`
@@ -269,6 +275,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
           transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`,
           width: `${100 / zoom}%`,
           height: `${100 / zoom}%`,
+          willChange: "transform",
         }}
       >
         {renderConnectionLines()}
@@ -277,10 +284,14 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
         {showControls && (
-          <div className="hidden md:block pointer-events-auto bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 shadow-lg max-w-xs">
+          <div className="hidden md:block pointer-events-none bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 shadow-lg max-w-xs">
             <div className="font-semibold flex justify-between  mb-2 text-gray-800">
               Controls:
-              <button onClick={hideControls} aria-label="Hide controls">
+              <button
+                className="pointer-events-auto"
+                onClick={hideControls}
+                aria-label="Hide controls"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>

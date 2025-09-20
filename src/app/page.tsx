@@ -51,6 +51,28 @@ function HomeContent() {
   const { zoom, panX, panY, setPan, setZoom, screenToWorld } = useZoom();
   const [user, setUser] = useState<User | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const panRafRef = useRef<number | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const pinchRafRef = useRef<number | null>(null);
+  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingPinchRef = useRef<{
+    zoom: number;
+    mouseX: number;
+    mouseY: number;
+  } | null>(null);
+  const activePanPointerIdRef = useRef<number | null>(null);
+  const activeDragPointerIdRef = useRef<number | null>(null);
+  const panStateRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const zoomStateRef = useRef<number>(1);
+
+  useEffect(() => {
+    panStateRef.current = { x: panX, y: panY };
+  }, [panX, panY]);
+
+  useEffect(() => {
+    zoomStateRef.current = zoom;
+  }, [zoom]);
 
   function showToast(
     message: string,
@@ -229,7 +251,7 @@ function HomeContent() {
     }
   }
 
-  function handleMouseDown(e: React.MouseEvent, noteId: string) {
+  function handlePointerDown(e: React.PointerEvent, noteId: string) {
     const target = e.target as HTMLElement;
 
     // Check if clicked on drag handle OR if it's not on an interactive element
@@ -240,6 +262,10 @@ function HomeContent() {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(noteId);
+      activeDragPointerIdRef.current = e.pointerId;
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {}
 
       // Calculate drag offset in world coordinates for accurate dragging
       const rect = containerRef.current?.getBoundingClientRect();
@@ -267,50 +293,72 @@ function HomeContent() {
     }
   }
 
-  function handleMouseMove(e: React.MouseEvent) {
-    console.log("🖱️ Parent MouseMove:", {
-      isPanning,
-      isDragging,
-      clientX: e.clientX,
-      clientY: e.clientY,
-    });
-
-    if (isPanning) {
-      console.log("🔄 Panning:", {
-        deltaX: e.clientX - lastPanPoint.x,
-        deltaY: e.clientY - lastPanPoint.y,
-        newPanX: panX + (e.clientX - lastPanPoint.x),
-        newPanY: panY + (e.clientY - lastPanPoint.y),
-      });
-      const deltaX = e.clientX - lastPanPoint.x;
-      const deltaY = e.clientY - lastPanPoint.y;
-      setPan(panX + deltaX, panY + deltaY);
-      setLastPanPoint({ x: e.clientX, y: e.clientY });
-    } else if (isDragging && containerRef.current) {
+  function handlePointerMove(e: React.PointerEvent) {
+    if (isPanning && e.pointerId === activePanPointerIdRef.current) {
+      pendingPanRef.current = { x: e.clientX, y: e.clientY };
+      if (panRafRef.current == null) {
+        panRafRef.current = window.requestAnimationFrame(() => {
+          const pending = pendingPanRef.current;
+          if (pending) {
+            const deltaX = pending.x - lastPanPoint.x;
+            const deltaY = pending.y - lastPanPoint.y;
+            const newPanX = panStateRef.current.x + deltaX;
+            const newPanY = panStateRef.current.y + deltaY;
+            setPan(newPanX, newPanY);
+            panStateRef.current = { x: newPanX, y: newPanY };
+            setLastPanPoint({ x: pending.x, y: pending.y });
+          }
+          panRafRef.current = null;
+        });
+      }
+    } else if (
+      isDragging &&
+      e.pointerId === activeDragPointerIdRef.current &&
+      containerRef.current
+    ) {
       const containerRect = containerRef.current.getBoundingClientRect();
-      const mouseScreenPos = {
-        x: e.clientX - containerRect.left,
-        y: e.clientY - containerRect.top,
-      };
-
-      // Convert to world coordinates and subtract the offset
-      const mouseWorldPos = screenToWorld(mouseScreenPos.x, mouseScreenPos.y);
+      // Use movement deltas to avoid layout-based jitter
+      const deltaX = e.movementX || e.clientX - lastPanPoint.x;
+      const deltaY = e.movementY || e.clientY - lastPanPoint.y;
+      const screenX = Math.max(
+        0,
+        Math.min(e.clientX - containerRect.left, containerRect.width)
+      );
+      const screenY = Math.max(
+        0,
+        Math.min(e.clientY - containerRect.top, containerRect.height)
+      );
+      const mouseWorldPos = screenToWorld(screenX, screenY);
       const newPosition = {
         x: mouseWorldPos.x - dragOffset.x,
         y: mouseWorldPos.y - dragOffset.y,
       };
-
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === isDragging
-            ? { ...note, position_x: newPosition.x, position_y: newPosition.y }
-            : note
-        )
-      );
+      pendingDragRef.current = newPosition;
+      if (dragRafRef.current == null) {
+        dragRafRef.current = window.requestAnimationFrame(() => {
+          const pending = pendingDragRef.current;
+          if (pending) {
+            setNotes((prev) =>
+              prev.map((note) =>
+                note.id === isDragging
+                  ? {
+                      ...note,
+                      position_x: pending.x,
+                      position_y: pending.y,
+                    }
+                  : note
+              )
+            );
+          }
+          dragRafRef.current = null;
+        });
+      }
+      // Update lastPanPoint for delta fallback
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
     }
   }
 
-  function handleMouseUp() {
+  function handlePointerUp(e?: React.PointerEvent) {
     if (isDragging) {
       const note = notes.find((n) => n.id === isDragging);
       if (note) {
@@ -330,6 +378,31 @@ function HomeContent() {
       setIsDragging(null);
     }
     setIsPanning(false);
+    if (panRafRef.current) {
+      cancelAnimationFrame(panRafRef.current);
+      panRafRef.current = null;
+    }
+    if (dragRafRef.current) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+    // Release pointer capture if any
+    try {
+      if (e && (e.currentTarget as Element).hasPointerCapture(e.pointerId)) {
+        (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+      }
+    } catch {}
+    if (e) {
+      if (e.pointerId === activePanPointerIdRef.current) {
+        activePanPointerIdRef.current = null;
+      }
+      if (e.pointerId === activeDragPointerIdRef.current) {
+        activeDragPointerIdRef.current = null;
+      }
+    } else {
+      activePanPointerIdRef.current = null;
+      activeDragPointerIdRef.current = null;
+    }
   }
 
   function handleNoteChange(noteId: string, content: string) {
@@ -411,9 +484,14 @@ function HomeContent() {
         Math.pow(touch2.clientX - touch1.clientX, 2) +
           Math.pow(touch2.clientY - touch1.clientY, 2)
       );
-
-      const scale = distance / touchStartDistance;
-      const newZoom = Math.max(0.1, Math.min(1.0, touchStartZoom * scale));
+      // Adjust sensitivity for finer control
+      const PINCH_SENSITIVITY = 0.7; // 0.5-0.8 = precise, 1.0 = raw
+      const rawScale = distance / touchStartDistance;
+      const scaledScale = 1 + (rawScale - 1) * PINCH_SENSITIVITY;
+      const nextZoom = Math.max(
+        0.1,
+        Math.min(1.0, touchStartZoom * scaledScale)
+      );
 
       // Center zoom between the two touches
       const centerX = (touch1.clientX + touch2.clientX) / 2;
@@ -424,11 +502,30 @@ function HomeContent() {
         const mouseX = centerX - rect.left;
         const mouseY = centerY - rect.top;
 
-        const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
-        const newPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
-
-        setZoom(newZoom);
-        setPan(newPanX, newPanY);
+        // Throttle zoom updates via rAF to reduce jitter
+        pendingPinchRef.current = { zoom: nextZoom, mouseX, mouseY };
+        if (pinchRafRef.current == null) {
+          pinchRafRef.current = window.requestAnimationFrame(() => {
+            const pending = pendingPinchRef.current;
+            if (pending) {
+              const currentZoom = zoomStateRef.current;
+              const currentPan = panStateRef.current;
+              if (Math.abs(pending.zoom - currentZoom) > 0.0005) {
+                const newPanX =
+                  pending.mouseX -
+                  (pending.mouseX - currentPan.x) *
+                    (pending.zoom / currentZoom);
+                const newPanY =
+                  pending.mouseY -
+                  (pending.mouseY - currentPan.y) *
+                    (pending.zoom / currentZoom);
+                setZoom(pending.zoom);
+                setPan(newPanX, newPanY);
+              }
+            }
+            pinchRafRef.current = null;
+          });
+        }
       }
     }
   }
@@ -438,25 +535,38 @@ function HomeContent() {
       setTouchStartDistance(0);
       setTouchStartZoom(1);
     }
+    if (pinchRafRef.current) {
+      cancelAnimationFrame(pinchRafRef.current);
+      pinchRafRef.current = null;
+    }
   }
 
-  function handleCanvasMouseDown(e: React.MouseEvent) {
-    console.log("🖱️ Canvas MouseDown:", {
-      button: e.button,
-      ctrlKey: e.ctrlKey,
-      isSpacePressed,
-      target: e.target,
-      currentTarget: e.currentTarget,
-      shouldStartPanning: e.button === 1 || e.button === 0,
-    });
+  function handleCanvasPointerDown(e: React.PointerEvent) {
+    // Mouse/pen: left or middle button pans
+    const isMouseOrPen = e.pointerType === "mouse" || e.pointerType === "pen";
+    const shouldPanMouse = isMouseOrPen && (e.button === 0 || e.button === 1);
+    // Touch: only primary finger starts panning; multi-touch handled by pinch logic
+    const shouldPanTouch = e.pointerType === "touch" && e.isPrimary;
 
-    // Allow panning with left click anywhere on canvas or middle mouse button
-    if (e.button === 1 || e.button === 0) {
-      console.log("🚀 Starting pan!");
+    if (shouldPanMouse || shouldPanTouch) {
       e.preventDefault();
       e.stopPropagation();
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {}
       setIsPanning(true);
-      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      activePanPointerIdRef.current = e.pointerId;
+      // Snap start to inside the canvas to avoid null deltas near borders
+      const rect = (e.currentTarget as Element).getBoundingClientRect();
+      const clampedX = Math.max(
+        rect.left + 1,
+        Math.min(e.clientX, rect.right - 1)
+      );
+      const clampedY = Math.max(
+        rect.top + 1,
+        Math.min(e.clientY, rect.bottom - 1)
+      );
+      setLastPanPoint({ x: clampedX, y: clampedY });
     }
   }
 
@@ -597,13 +707,16 @@ function HomeContent() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden prevent-zoom">
+    <div
+      className="relative w-screen overflow-hidden prevent-zoom"
+      style={{ height: "100dvh", paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       {/* Full-screen canvas */}
       <div
         ref={containerRef}
         className={`absolute inset-0 prevent-zoom ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
         onWheel={handleWheel}
-        onMouseDown={handleCanvasMouseDown}
+        onPointerDown={handleCanvasPointerDown}
         onClick={handleCanvasClick}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -613,15 +726,15 @@ function HomeContent() {
           notes={notes}
           isDragging={isDragging}
           editingNote={editingNote}
-          onMouseDown={handleMouseDown}
+          onPointerDown={handlePointerDown}
           onNoteEdit={handleNoteEdit}
           onNoteDelete={handleNoteDelete}
           onNoteChange={handleNoteChange}
           onColorChange={handleColorChange}
           onEditSave={() => setEditingNote(null)}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onCanvasMouseDown={handleCanvasMouseDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onCanvasPointerDown={handleCanvasPointerDown}
           currentUserId={user?.uid || undefined}
           onToggleStar={toggleStar}
         />

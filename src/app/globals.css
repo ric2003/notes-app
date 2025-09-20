@@ -28,25 +28,23 @@ body {
   /* Prevent browser zoom */
   touch-action: pan-x pan-y;
   -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  -khtml-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
+  /* Allow selection in input/textarea/contenteditable */
+  -webkit-user-select: text;
+  -khtml-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  overscroll-behavior: contain;
 }
 
 html {
   /* Prevent browser zoom */
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 /* Prevent zoom on specific elements */
 .prevent-zoom {
   touch-action: pan-x pan-y;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
 }
 
 .text-rainbow-text {
