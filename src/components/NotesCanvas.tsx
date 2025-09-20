@@ -3,6 +3,7 @@
 import { useRef, useCallback, useState, useMemo } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import Note, { NoteProps } from "@/components/Note";
+import { X } from "lucide-react";
 
 interface NoteData {
   id: string;
@@ -53,6 +54,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const { zoom, panX, panY, isAnimating } = useZoom();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [hoveredNote, setHoveredNote] = useState<string | null>(null);
+  const [showControls, setShowControls] = useState(true);
 
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -98,6 +100,10 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       backgroundPosition: `${panX % effectiveGridSize}px ${panY % effectiveGridSize}px`,
     };
   }, [zoom, panX, panY]);
+
+  const hideControls = () => {
+    setShowControls(false);
+  };
 
   // Connection lines
   const renderConnectionLines = useCallback(() => {
@@ -270,14 +276,21 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       </div>
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
-        <div className="hidden xl:block bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 shadow-lg max-w-xs">
-          <div className="font-semibold mb-2 text-gray-800">Controls:</div>
-          <div className="space-y-1">
-            <div>• Drag notes to move them</div>
-            <div>• Click & drag empty space to pan</div>
-            <div>• Scroll/pinch to zoom</div>
+        {showControls && (
+          <div className="hidden md:block pointer-events-auto bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 shadow-lg max-w-xs">
+            <div className="font-semibold flex justify-between  mb-2 text-gray-800">
+              Controls:
+              <button onClick={hideControls} aria-label="Hide controls">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <div>• Drag notes to move them</div>
+              <div>• Click & drag empty space to pan</div>
+              <div>• Scroll/pinch to zoom</div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

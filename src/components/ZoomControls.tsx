@@ -11,7 +11,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
   const { zoom, zoomIn, zoomOut, resetZoom, fitToContent } = useZoom();
 
   return (
-    <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl p-1 shadow-lg">
+    <div className="hidden md:flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl p-1 shadow-lg">
       <button
         onClick={zoomOut}
         className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
@@ -24,7 +24,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
         />
       </button>
 
-      <div className="px-2 py-1 text-sm font-mono text-gray-600 min-w-[60px] text-center">
+      <div className="py-1 text-sm font-mono text-gray-600 min-w-[60px] text-center">
         {Math.round(zoom * 100)}%
       </div>
 

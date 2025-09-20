@@ -285,122 +285,116 @@ export default function UserProfiles({
   return (
     <div className={`relative flex items-center ${className}`}>
       {/* Users Stack - Online presence */}
-      <div
-        ref={presenceRef}
-        role="button"
-        aria-expanded={showPresenceList}
-        aria-label="Online users"
-        onClick={() => otherUsers.length > 0 && setShowPresenceList((s) => !s)}
-        className={`relative flex items-center bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 px-3 py-2 ${
-          otherUsers.length > 0 ? "cursor-pointer" : "cursor-default"
-        } select-none`}
-        title={otherUsers.length > 0 ? "Show online users" : undefined}
-      >
-        {otherUsers.length === 0 ? (
+      {otherUsers.length > 0 && (
+        <div
+          ref={presenceRef}
+          role="button"
+          aria-expanded={showPresenceList}
+          aria-label="Online users"
+          onClick={() =>
+            otherUsers.length > 0 && setShowPresenceList((s) => !s)
+          }
+          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 px-3 py-2 ${
+            otherUsers.length > 0 ? "cursor-pointer" : "cursor-default"
+          } select-none`}
+          title={otherUsers.length > 0 ? "Show online users" : undefined}
+        >
           <div className="flex items-center">
-            <span className="text-sm font-medium text-gray-700">
-              Only you Online
-            </span>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center">
-              {otherUsers.slice(0, 4).map((u, index) => (
-                <div
-                  key={u.id}
-                  className="relative group"
-                  style={{
-                    marginLeft: index > 0 ? "-8px" : "0",
-                    zIndex: 10 - index,
-                  }}
-                >
-                  {u.photoURL ? (
-                    <img
-                      src={u.photoURL}
-                      alt={u.name || "User"}
-                      className="w-8 h-8 rounded-full object-cover border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
-                      title={`${u.name || "Anonymous"} - Online`}
-                    />
-                  ) : (
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
-                      style={{ backgroundColor: getColorForId(u.id) }}
-                      title={`${u.name || "Anonymous"} - Online`}
-                    >
-                      {(u.name || "?").charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {otherUsers.length > 4 && (
-                <div
-                  className="relative"
-                  style={{ marginLeft: "-8px", zIndex: 1 }}
-                >
-                  <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white shadow-sm flex items-center justify-center hover:bg-gray-200 transition-colors duration-200">
-                    <span className="text-xs text-gray-600 font-medium">
-                      +{otherUsers.length - 4}
-                    </span>
+            {otherUsers.slice(0, 4).map((u, index) => (
+              <div
+                key={u.id}
+                className="relative group"
+                style={{
+                  marginLeft: index > 0 ? "-8px" : "0",
+                  zIndex: 10 - index,
+                }}
+              >
+                {u.photoURL ? (
+                  <img
+                    src={u.photoURL}
+                    alt={u.name || "User"}
+                    className="w-8 h-8 rounded-full object-cover border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
+                    title={`${u.name || "Anonymous"} - Online`}
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
+                    style={{ backgroundColor: getColorForId(u.id) }}
+                    title={`${u.name || "Anonymous"} - Online`}
+                  >
+                    {(u.name || "?").charAt(0).toUpperCase()}
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            ))}
 
-            <div className="mx-1 h-6 w-px bg-gray-200" />
-            <div className="pl-1 pr-0.5 text-xs text-gray-700 font-medium">
-              {onlineLabel}
-            </div>
-          </>
-        )}
-
-        {showPresenceList && (
-          <div className="absolute top-12 left-0 w-64 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-xl p-3 z-50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-gray-700">
-                Online now
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
-                {totalOnline}
-              </span>
-            </div>
-            <div className="max-h-64 overflow-auto pr-1">
-              {onlineUsers.map((u) => (
-                <div key={u.id} className="flex items-center gap-2 py-1.5">
-                  {u.photoURL ? (
-                    <img
-                      src={u.photoURL}
-                      alt={u.name || "User"}
-                      className="w-6 h-6 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-semibold"
-                      style={{ backgroundColor: getColorForId(u.id) }}
-                      title={`${u.name || "Anonymous"}`}
-                    >
-                      {(u.name || "?").charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-sm text-gray-800 truncate">
-                      {u.name || "Anonymous"}
-                    </div>
-                    <div className="text-[11px] text-gray-500 truncate">
-                      {u.email || (u.isAnonymous ? "Guest" : "")}
-                    </div>
-                  </div>
-                  {u.id === myId && (
-                    <span className="ml-auto text-[10px] text-gray-500">
-                      you
-                    </span>
-                  )}
+            {otherUsers.length > 4 && (
+              <div
+                className="relative"
+                style={{ marginLeft: "-8px", zIndex: 1 }}
+              >
+                <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white shadow-sm flex items-center justify-center hover:bg-gray-200 transition-colors duration-200">
+                  <span className="text-xs text-gray-600 font-medium">
+                    +{otherUsers.length - 4}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          <div className="mx-1 h-6 w-px bg-gray-200" />
+          <div className="pl-1 pr-0.5 text-xs text-gray-700 font-medium">
+            {onlineLabel}
+          </div>
+
+          {showPresenceList && (
+            <div className="absolute top-12 left-0 w-64 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-xl p-3 z-50">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-gray-700">
+                  Online now
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                  {totalOnline}
+                </span>
+              </div>
+              <div className="max-h-64 overflow-auto pr-1">
+                {onlineUsers.map((u) => (
+                  <div key={u.id} className="flex items-center gap-2 py-1.5">
+                    {u.photoURL ? (
+                      <img
+                        src={u.photoURL}
+                        alt={u.name || "User"}
+                        className="w-6 h-6 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-semibold"
+                        style={{ backgroundColor: getColorForId(u.id) }}
+                        title={`${u.name || "Anonymous"}`}
+                      >
+                        {(u.name || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm text-gray-800 truncate">
+                        {u.name || "Anonymous"}
+                      </div>
+                      <div className="text-[11px] text-gray-500 truncate">
+                        {u.email || (u.isAnonymous ? "Guest" : "")}
+                      </div>
+                    </div>
+                    {u.id === myId && (
+                      <span className="ml-auto text-[10px] text-gray-500">
+                        you
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Separator */}
       <div className="mx-1"></div>

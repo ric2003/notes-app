@@ -627,7 +627,7 @@ function HomeContent() {
         />
       </div>
 
-      {/* Floating controls - Top Left */}
+      {/* Floating controls - Top Left and Center */}
       <div
         className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
         style={{ transform: "scale(1)", transformOrigin: "top left" }}
@@ -647,9 +647,12 @@ function HomeContent() {
           <span className="hidden sm:inline">Create Note</span>
         </button>
 
-        <ZoomControls notes={notes} />
-
         <UserProfiles isConnected={isConnected} />
+      </div>
+
+      {/* Centered Zoom Controls */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 prevent-zoom">
+        <ZoomControls notes={notes} />
       </div>
 
       {/* Toasts - Absolute positioned, themed */}
