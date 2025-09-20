@@ -44,6 +44,9 @@ const Note: React.FC<NoteProps> = ({
   const [localContent, setLocalContent] = useState(content);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isMacPlatform =
+    typeof window !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   useEffect(() => {
     setLocalContent(content);
@@ -165,8 +168,10 @@ const Note: React.FC<NoteProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Only handle specific shortcuts, let everything else pass through
-    if (e.ctrlKey && e.key === "Enter") {
+    // Close on Enter with any modifier key (Ctrl, Cmd/Meta, Alt, or Shift) or on Escape
+    const isEnterWithModifier =
+      e.key === "Enter" && (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey);
+    if (isEnterWithModifier) {
       e.preventDefault();
       handleSaveEdit();
     } else if (e.key === "Escape") {
@@ -281,8 +286,11 @@ const Note: React.FC<NoteProps> = ({
               placeholder="Type your note here..."
             />
             <div className="flex gap-4 text-xs text-gray-500">
-              <span>Ctrl+Enter to save</span>
-              <span>Esc to cancel</span>
+              <span>
+                {isMacPlatform
+                  ? "Cmd/Option/Shift + Enter or Esc to close"
+                  : "Ctrl/Alt/Shift + Enter or Esc to close"}
+              </span>
             </div>
           </div>
         ) : (
