@@ -180,6 +180,16 @@ const Note: React.FC<NoteProps> = ({
     }
   };
 
+  const handleContentKeyDown = (
+    e: React.KeyboardEvent<HTMLParagraphElement>
+  ) => {
+    if (!isEditing && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      e.stopPropagation();
+      onEdit?.(id);
+    }
+  };
+
   const handleDelete = (e: React.MouseEvent) => {
     onDelete?.(id);
   };
@@ -298,6 +308,9 @@ const Note: React.FC<NoteProps> = ({
           <p
             className="text-gray-700 leading-relaxed text-sm line-clamp-4 cursor-pointer"
             onClick={handleEdit}
+            role="button"
+            tabIndex={0}
+            onKeyDown={handleContentKeyDown}
           >
             {localContent || "Click edit to add content..."}
           </p>

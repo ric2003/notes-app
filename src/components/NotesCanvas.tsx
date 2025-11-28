@@ -65,9 +65,18 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
   const handleNotePointerDown = useCallback(
     (e: React.PointerEvent, noteId: string) => {
-      e.stopPropagation();
-      // Prevent mouse compatibility events firing
+      const target = e.target as HTMLElement;
+      const isInteractive = Boolean(
+        target.closest("button,textarea,input,select,a,[role='button']")
+      );
+      // Only start drag when not interacting with controls
+      if (isInteractive) {
+        e.stopPropagation();
+        return;
+      }
+      // Prevent mouse compatibility events firing when dragging
       e.preventDefault();
+      e.stopPropagation();
       onPointerDown(e, noteId);
     },
     [onPointerDown]
@@ -172,6 +181,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             translate3d(${note.position_x}px, ${note.position_y}px, 0)
             ${isDraggingThis ? "scale(1)" : isHovered ? "scale(1.02)" : "scale(1)"}
           `,
+            transformOrigin: "top left",
             opacity: isDraggingThis ? 0.95 : 1,
             filter: `
             drop-shadow(${isDraggingThis ? "0 25px 50px" : isHovered ? "0 10px 30px" : "0 4px 15px"} 

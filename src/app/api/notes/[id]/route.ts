@@ -34,7 +34,8 @@ function buildDbUrl(path: string): string {
 
 export async function GET(_req: Request, context: unknown) {
   try {
-    const { id } = (context as { params?: { id?: string } })?.params || {};
+    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const { id } = params;
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "GET",
       cache: "no-store",
@@ -111,7 +112,8 @@ export async function PATCH(req: Request, context: unknown) {
 
     updates.edited_at = { ".sv": "timestamp" };
 
-    const { id } = (context as { params?: { id?: string } })?.params || {};
+    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const { id } = params;
     const patchRes = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -170,7 +172,8 @@ export const PUT = PATCH;
 
 export async function DELETE(_req: Request, context: unknown) {
   try {
-    const { id } = (context as { params?: { id?: string } })?.params || {};
+    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const { id } = params;
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "DELETE",
     });
