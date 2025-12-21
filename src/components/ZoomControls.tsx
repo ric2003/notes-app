@@ -11,10 +11,10 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
   const { zoom, zoomIn, zoomOut, resetZoom, fitToContent } = useZoom();
 
   return (
-    <div className="hidden md:flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl p-1 shadow-lg">
+    <div className="hidden md:flex items-center gap-1 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl p-1.5 shadow-lg">
       <button
         onClick={zoomOut}
-        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
+        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
         title="Zoom Out"
         disabled={zoom <= 0.1}
       >
@@ -24,13 +24,13 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
         />
       </button>
 
-      <div className="py-1 text-sm font-mono text-gray-600 min-w-[60px] text-center">
+      <div className="py-1.5 text-sm font-medium text-gray-600 min-w-[56px] text-center tabular-nums">
         {Math.round(zoom * 100)}%
       </div>
 
       <button
         onClick={zoomIn}
-        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
+        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
         title="Zoom In"
         disabled={zoom >= 1.0}
       >
@@ -40,11 +40,11 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
         />
       </button>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="w-px h-6 bg-gray-200/80 mx-1" />
 
       <button
         onClick={resetZoom}
-        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
+        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105"
         title="Reset Zoom (1:1)"
       >
         <RotateCcw size={16} className="text-gray-600" />
@@ -52,7 +52,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
 
       <button
         onClick={() => fitToContent(notes)}
-        className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
+        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
         title="Fit All Notes"
         disabled={notes.length === 0}
       >

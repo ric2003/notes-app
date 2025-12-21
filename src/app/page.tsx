@@ -43,7 +43,7 @@ function HomeContent() {
     Map<string, Partial<NoteData>>
   >(new Map());
   const [isPanning, setIsPanning] = useState(false);
-  const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
+  const lastPanPointRef = useRef({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [touchStartDistance, setTouchStartDistance] = useState(0);
   const [touchStartZoom, setTouchStartZoom] = useState(1);
@@ -265,7 +265,7 @@ function HomeContent() {
       activeDragPointerIdRef.current = e.pointerId;
       try {
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
-      } catch {}
+      } catch { }
 
       // Calculate drag offset in world coordinates for accurate dragging
       const rect = containerRef.current?.getBoundingClientRect();
@@ -300,13 +300,13 @@ function HomeContent() {
         panRafRef.current = window.requestAnimationFrame(() => {
           const pending = pendingPanRef.current;
           if (pending) {
-            const deltaX = pending.x - lastPanPoint.x;
-            const deltaY = pending.y - lastPanPoint.y;
+            const deltaX = pending.x - lastPanPointRef.current.x;
+            const deltaY = pending.y - lastPanPointRef.current.y;
             const newPanX = panStateRef.current.x + deltaX;
             const newPanY = panStateRef.current.y + deltaY;
             setPan(newPanX, newPanY);
             panStateRef.current = { x: newPanX, y: newPanY };
-            setLastPanPoint({ x: pending.x, y: pending.y });
+            lastPanPointRef.current = { x: pending.x, y: pending.y };
           }
           panRafRef.current = null;
         });
@@ -318,8 +318,8 @@ function HomeContent() {
     ) {
       const containerRect = containerRef.current.getBoundingClientRect();
       // Use movement deltas to avoid layout-based jitter
-      const deltaX = e.movementX || e.clientX - lastPanPoint.x;
-      const deltaY = e.movementY || e.clientY - lastPanPoint.y;
+      const deltaX = e.movementX || e.clientX - lastPanPointRef.current.x;
+      const deltaY = e.movementY || e.clientY - lastPanPointRef.current.y;
       const screenX = Math.max(
         0,
         Math.min(e.clientX - containerRect.left, containerRect.width)
@@ -342,10 +342,10 @@ function HomeContent() {
               prev.map((note) =>
                 note.id === isDragging
                   ? {
-                      ...note,
-                      position_x: pending.x,
-                      position_y: pending.y,
-                    }
+                    ...note,
+                    position_x: pending.x,
+                    position_y: pending.y,
+                  }
                   : note
               )
             );
@@ -353,8 +353,8 @@ function HomeContent() {
           dragRafRef.current = null;
         });
       }
-      // Update lastPanPoint for delta fallback
-      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      // Update lastPanPointRef for delta fallback
+      lastPanPointRef.current = { x: e.clientX, y: e.clientY };
     }
   }
 
@@ -391,7 +391,7 @@ function HomeContent() {
       if (e && (e.currentTarget as Element).hasPointerCapture(e.pointerId)) {
         (e.currentTarget as Element).releasePointerCapture(e.pointerId);
       }
-    } catch {}
+    } catch { }
     if (e) {
       if (e.pointerId === activePanPointerIdRef.current) {
         activePanPointerIdRef.current = null;
@@ -465,7 +465,7 @@ function HomeContent() {
       const touch2 = e.touches[1];
       const distance = Math.sqrt(
         Math.pow(touch2.clientX - touch1.clientX, 2) +
-          Math.pow(touch2.clientY - touch1.clientY, 2)
+        Math.pow(touch2.clientY - touch1.clientY, 2)
       );
       setTouchStartDistance(distance);
       setTouchStartZoom(zoom);
@@ -482,7 +482,7 @@ function HomeContent() {
       const touch2 = e.touches[1];
       const distance = Math.sqrt(
         Math.pow(touch2.clientX - touch1.clientX, 2) +
-          Math.pow(touch2.clientY - touch1.clientY, 2)
+        Math.pow(touch2.clientY - touch1.clientY, 2)
       );
       // Adjust sensitivity for finer control
       const PINCH_SENSITIVITY = 0.7; // 0.5-0.8 = precise, 1.0 = raw
@@ -514,11 +514,11 @@ function HomeContent() {
                 const newPanX =
                   pending.mouseX -
                   (pending.mouseX - currentPan.x) *
-                    (pending.zoom / currentZoom);
+                  (pending.zoom / currentZoom);
                 const newPanY =
                   pending.mouseY -
                   (pending.mouseY - currentPan.y) *
-                    (pending.zoom / currentZoom);
+                  (pending.zoom / currentZoom);
                 setZoom(pending.zoom);
                 setPan(newPanX, newPanY);
               }
@@ -553,7 +553,7 @@ function HomeContent() {
       e.stopPropagation();
       try {
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
-      } catch {}
+      } catch { }
       setIsPanning(true);
       activePanPointerIdRef.current = e.pointerId;
       // Snap start to inside the canvas to avoid null deltas near borders
@@ -566,7 +566,7 @@ function HomeContent() {
         rect.top + 1,
         Math.min(e.clientY, rect.bottom - 1)
       );
-      setLastPanPoint({ x: clampedX, y: clampedY });
+      lastPanPointRef.current = { x: clampedX, y: clampedY };
     }
   }
 
@@ -740,7 +740,7 @@ function HomeContent() {
         />
       </div>
 
-      {/* Floating controls - Top Left and Center */}
+      {/* Floating controls - Top Left and Right */}
       <div
         className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
         style={{ transform: "scale(1)", transformOrigin: "top left" }}
@@ -754,15 +754,16 @@ function HomeContent() {
               createBox(window.innerWidth / 2, window.innerHeight / 2);
             }
           }}
-          className="flex items-center gap-3 px-5 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg hover:bg-white hover:shadow-xl hover:scale-105 transition-all duration-200 font-medium text-gray-700"
+          className="group flex items-center gap-2.5 px-5 py-2.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5"
         >
-          <PlusIcon className="w-5 h-5" />
+          <div className="p-1 bg-blue-500 rounded-lg shadow-sm group-hover:scale-102 transition-transform duration-300">
+            <PlusIcon className="w-4 h-4 text-white" />
+          </div>
           <span className="hidden sm:inline">Create Note</span>
         </button>
 
         <UserProfiles isConnected={isConnected} />
       </div>
-
       {/* Centered Zoom Controls */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 prevent-zoom">
         <ZoomControls notes={notes} />
@@ -773,17 +774,22 @@ function HomeContent() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-sm
-              ${t.type === "success" ? "bg-white/90 border-green-200" : ""}
-              ${t.type === "info" ? "bg-white/90 border-blue-200" : ""}
-              ${t.type === "warning" ? "bg-white/90 border-yellow-200" : ""}
-              ${t.type === "error" ? "bg-white/90 border-red-200" : ""}
+            className={`flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border backdrop-blur-xl animate-scale-in
+              ${t.type === "success" ? "bg-emerald-50/95 border-emerald-200" : ""}
+              ${t.type === "info" ? "bg-sky-50/95 border-sky-200" : ""}
+              ${t.type === "warning" ? "bg-amber-50/95 border-amber-200" : ""}
+              ${t.type === "error" ? "bg-rose-50/95 border-rose-200" : ""}
             `}
           >
-            <div className="w-5 h-5 text-yellow-600">
+            <div className={`w-5 h-5 flex items-center justify-center
+              ${t.type === "success" ? "text-emerald-500" : ""}
+              ${t.type === "info" ? "text-sky-500" : ""}
+              ${t.type === "warning" ? "text-amber-500" : ""}
+              ${t.type === "error" ? "text-rose-500" : ""}
+            `}>
               <AlertTriangle className="w-5 h-5" />
             </div>
-            <span className="text-sm font-medium text-gray-800">
+            <span className="text-sm font-medium text-gray-700">
               {t.message}
             </span>
           </div>

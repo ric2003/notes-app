@@ -68,7 +68,7 @@ export default function UserProfiles({
     }
     const generated =
       typeof crypto !== "undefined" &&
-      (crypto as { randomUUID: () => string }).randomUUID
+        (crypto as { randomUUID: () => string }).randomUUID
         ? (crypto as { randomUUID: () => string }).randomUUID()
         : `anon_${Math.random().toString(36).slice(2)}`;
     window.localStorage.setItem("notesAppSessionId", generated);
@@ -100,7 +100,7 @@ export default function UserProfiles({
       if (currentUser) {
         setShowAuthForm(false);
         if (sessionId) {
-          remove(dbRef(db, `notes/presence/${sessionId}`)).catch(() => {});
+          remove(dbRef(db, `notes/presence/${sessionId}`)).catch(() => { });
         }
       }
     });
@@ -120,7 +120,7 @@ export default function UserProfiles({
       update(dbRef(db, `notes/presence/${prevId}`), {
         online: false,
         last_changed: serverTimestamp(),
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const connectedRef = dbRef(db, ".info/connected");
@@ -142,7 +142,7 @@ export default function UserProfiles({
         photoURL: user?.photoURL ?? null,
         online: true,
         last_changed: serverTimestamp(),
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Track current presence identity
       prevPresenceIdRef.current = id;
@@ -150,7 +150,7 @@ export default function UserProfiles({
       // Ensure we flip to offline when the tab disconnects
       onDisconnect(presenceRef)
         .update({ online: false, last_changed: serverTimestamp() })
-        .catch(() => {});
+        .catch(() => { });
     });
 
     return () => {
@@ -179,13 +179,13 @@ export default function UserProfiles({
           const entry =
             typeof raw === "object" && raw !== null
               ? (raw as {
-                  name?: string;
-                  email?: string | null;
-                  isAnonymous?: boolean;
-                  online?: boolean;
-                  photoURL?: string | null;
-                  username?: string | null;
-                })
+                name?: string;
+                email?: string | null;
+                isAnonymous?: boolean;
+                online?: boolean;
+                photoURL?: string | null;
+                username?: string | null;
+              })
               : {};
           return { id, ...entry } as PresenceEntry;
         })
@@ -245,7 +245,7 @@ export default function UserProfiles({
         await update(dbRef(db, `notes/presence/${user.uid}`), {
           online: false,
           last_changed: serverTimestamp(),
-        }).catch(() => {});
+        }).catch(() => { });
       }
       await signOut(auth);
     } catch (error) {
@@ -294,9 +294,8 @@ export default function UserProfiles({
           onClick={() =>
             otherUsers.length > 0 && setShowPresenceList((s) => !s)
           }
-          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 px-3 py-2 ${
-            otherUsers.length > 0 ? "cursor-pointer" : "cursor-default"
-          } select-none`}
+          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 px-3 py-2 ${otherUsers.length > 0 ? "cursor-pointer hover:shadow-xl transition-shadow duration-300" : "cursor-default"
+            } select-none`}
           title={otherUsers.length > 0 ? "Show online users" : undefined}
         >
           <div className="flex items-center">
@@ -313,12 +312,12 @@ export default function UserProfiles({
                   <img
                     src={u.photoURL}
                     alt={u.name || "User"}
-                    className="w-8 h-8 rounded-full object-cover border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
+                    className="w-8 h-8 rounded-xl object-cover border-2 border-emerald-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
                     title={`${u.name || "Anonymous"} - Online`}
                   />
                 ) : (
                   <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold border-2 border-green-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-semibold border-2 border-emerald-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
                     style={{ backgroundColor: getColorForId(u.id) }}
                     title={`${u.name || "Anonymous"} - Online`}
                   >
@@ -333,8 +332,8 @@ export default function UserProfiles({
                 className="relative"
                 style={{ marginLeft: "-8px", zIndex: 1 }}
               >
-                <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white shadow-sm flex items-center justify-center hover:bg-gray-200 transition-colors duration-200">
-                  <span className="text-xs text-gray-600 font-medium">
+                <div className="w-8 h-8 rounded-xl bg-gray-100 border-2 border-white shadow-sm flex items-center justify-center hover:bg-gray-200 transition-colors duration-200">
+                  <span className="text-xs text-gray-600 font-medium tabular-nums">
                     +{otherUsers.length - 4}
                   </span>
                 </div>
@@ -348,43 +347,43 @@ export default function UserProfiles({
           </div>
 
           {showPresenceList && (
-            <div className="absolute top-12 left-0 w-64 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-xl p-3 z-50">
-              <div className="flex items-center justify-between mb-2">
+            <div className="absolute top-12 left-0 w-64 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-4 z-50 animate-scale-in">
+              <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-gray-700">
                   Online now
                 </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 font-medium tabular-nums">
                   {totalOnline}
                 </span>
               </div>
-              <div className="max-h-64 overflow-auto pr-1">
+              <div className="max-h-64 overflow-auto pr-1 space-y-1">
                 {onlineUsers.map((u) => (
-                  <div key={u.id} className="flex items-center gap-2 py-1.5">
+                  <div key={u.id} className="flex items-center gap-2.5 py-2 px-2 rounded-xl hover:bg-gray-50 transition-colors duration-200">
                     {u.photoURL ? (
                       <img
                         src={u.photoURL}
                         alt={u.name || "User"}
-                        className="w-6 h-6 rounded-full object-cover"
+                        className="w-7 h-7 rounded-lg object-cover"
                       />
                     ) : (
                       <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-semibold"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-semibold"
                         style={{ backgroundColor: getColorForId(u.id) }}
                         title={`${u.name || "Anonymous"}`}
                       >
                         {(u.name || "?").charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <div className="min-w-0">
-                      <div className="text-sm text-gray-800 truncate">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-gray-800 truncate font-medium">
                         {u.name || "Anonymous"}
                       </div>
-                      <div className="text-[11px] text-gray-500 truncate">
+                      <div className="text-[11px] text-gray-400 truncate">
                         {u.email || (u.isAnonymous ? "Guest" : "")}
                       </div>
                     </div>
                     {u.id === myId && (
-                      <span className="ml-auto text-[10px] text-gray-500">
+                      <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                         you
                       </span>
                     )}
@@ -402,13 +401,13 @@ export default function UserProfiles({
       {/* User Profile */}
       <div className="flex items-center">
         {/* Combined profile and name container */}
-        <div className="flex items-center bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 pl-1 pr-3 py-1">
+        <div className="flex items-center bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 pl-1.5 pr-3.5 py-1.5">
           <div className="relative mr-3">
             {/* Main avatar with status ring */}
             <div
-              className={`relative p-0.5 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"} transition-all duration-300`}
+              className={`relative p-0.5 rounded-xl ${isConnected ? "bg-gradient-to-br from-emerald-400 to-teal-500" : "bg-gradient-to-br from-rose-400 to-red-500"} transition-all duration-300`}
             >
-              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center overflow-hidden">
+              <div className="w-8 h-8 rounded-[10px] bg-white flex items-center justify-center overflow-hidden">
                 {user ? (
                   user.photoURL ? (
                     <img
@@ -417,7 +416,7 @@ export default function UserProfiles({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-gray-700 font-bold text-sm">
+                    <span className="text-gray-700 font-semibold text-sm">
                       {displayName.charAt(0).toUpperCase()}
                     </span>
                   )
@@ -427,11 +426,15 @@ export default function UserProfiles({
               </div>
             </div>
 
-            {/* Connection Status indicator */}
+            {/* Connection Status indicator with glow */}
             <div
-              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white shadow-sm transition-all duration-300 ${
-                isConnected ? "bg-green-500" : "bg-red-500"
-              }`}
+              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-md border-2 border-white shadow-sm transition-all duration-300 ${isConnected ? "bg-emerald-500" : "bg-rose-500"
+                }`}
+              style={{
+                boxShadow: isConnected
+                  ? '0 0 8px rgba(16, 185, 129, 0.5)'
+                  : '0 0 8px rgba(244, 63, 94, 0.5)'
+              }}
             ></div>
           </div>
 
@@ -441,13 +444,12 @@ export default function UserProfiles({
               <span className="text-sm font-medium text-gray-700">
                 {displayName}
               </span>
-              {/* Edit removed since we rely on Auth (Google) profile only */}
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors duration-200"
+                className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200 px-2 py-1 hover:bg-gray-100 rounded-lg"
                 title="Sign out"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
                 <span>Sign out</span>
               </button>
             </div>
@@ -484,17 +486,17 @@ export default function UserProfiles({
 
       {/* Auth popover */}
       {!user && showAuthForm && (
-        <div className="absolute top-14 right-0 w-80 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-xl p-4 z-50">
-          <div className="flex items-center gap-1 mb-3 bg-gray-100 rounded-lg p-1">
+        <div className="absolute top-14 right-0 w-80 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-5 z-50 animate-scale-in">
+          <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1">
             <button
               onClick={() => setAuthMode("login")}
-              className={`flex-1 py-2 text-sm rounded-md transition-colors ${authMode === "login" ? "bg-white shadow text-gray-900" : "text-gray-600"}`}
+              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "login" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
             >
               Login
             </button>
             <button
               onClick={() => setAuthMode("signup")}
-              className={`flex-1 py-2 text-sm rounded-md transition-colors ${authMode === "signup" ? "bg-white shadow text-gray-900" : "text-gray-600"}`}
+              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "signup" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
             >
               Sign Up
             </button>

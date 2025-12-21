@@ -53,7 +53,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 }) => {
   const { zoom, panX, panY, isAnimating } = useZoom();
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [hoveredNote, setHoveredNote] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
 
   const handleCanvasPointerDown = useCallback(
@@ -85,32 +84,16 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const GRID_SIZE = 20;
 
   const backgroundStyle = useMemo(() => {
-    const baseBackground = `
-      radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%),
-      radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.1) 0%, transparent 50%),
-      linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)
-    `;
-
-    const effectiveGridSize = GRID_SIZE * zoom;
-    const opacity = Math.min(0.3, Math.max(0.05, zoom * 0.2));
-
-    if (effectiveGridSize < 5) {
-      return {
-        background: baseBackground,
-      };
-    }
-
+    // Clean white paper background
     return {
       background: `
-        linear-gradient(rgba(99, 102, 241, ${opacity}) 2px, transparent 2px),
-        linear-gradient(90deg, rgba(99, 102, 241, ${opacity}) 2px, transparent 2px),
-        ${baseBackground}
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 255, 255, 0.9) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 100%, rgba(255, 255, 255, 0.5) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 0% 100%, rgba(252, 252, 252, 0.5) 0%, transparent 50%),
+        linear-gradient(180deg, #ffffff 0%, #fefefe 30%, #fcfcfc 60%, #fafafa 100%)
       `,
-      backgroundSize: `${effectiveGridSize}px ${effectiveGridSize}px`,
-      backgroundPosition: `${panX % effectiveGridSize}px ${panY % effectiveGridSize}px`,
     };
-  }, [zoom, panX, panY]);
+  }, []);
 
   const hideControls = () => {
     setShowControls(false);
@@ -127,7 +110,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       notes.slice(i + 1).forEach((note2) => {
         const distance = Math.sqrt(
           Math.pow(note1.position_x - note2.position_x, 2) +
-            Math.pow(note1.position_y - note2.position_y, 2)
+          Math.pow(note1.position_y - note2.position_y, 2)
         );
 
         if (distance < NOTE_THRESHOLD) {
@@ -163,63 +146,25 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     ) : null;
   }, [notes, zoom]);
 
-  // Enhanced note rendering
+  // Note rendering - no transitions on transform for smooth panning
   const renderNote = useCallback(
     (note: NoteData, index: number) => {
       const isDraggingThis = isDragging === note.id;
-      const isHovered = hoveredNote === note.id;
 
       return (
         <div
           key={`${note.id}-${index}`}
-          className={`
-          note-container absolute ${isDraggingThis ? "" : "transition-all duration-300 ease-out"}
-          ${isDraggingThis ? "z-50" : "z-10"}
-        `}
+          className={`note-container absolute ${isDraggingThis ? "z-50" : "z-10"}`}
           style={{
-            transform: `
-            translate3d(${note.position_x}px, ${note.position_y}px, 0)
-            ${isDraggingThis ? "scale(1)" : isHovered ? "scale(1.02)" : "scale(1)"}
-          `,
+            transform: `translate3d(${note.position_x}px, ${note.position_y}px, 0)`,
             transformOrigin: "top left",
             opacity: isDraggingThis ? 0.95 : 1,
-            filter: `
-            drop-shadow(${isDraggingThis ? "0 25px 50px" : isHovered ? "0 10px 30px" : "0 4px 15px"} 
-            rgba(0, 0, 0, ${isDraggingThis ? 0.3 : isHovered ? 0.15 : 0.1}))
-          `,
             cursor: isDraggingThis ? "grabbing" : "grab",
             pointerEvents: "auto",
-            willChange: "transform",
           }}
           onPointerDown={(e) => handleNotePointerDown(e, note.id)}
-          onMouseEnter={() => setHoveredNote(note.id)}
-          onMouseLeave={() => setHoveredNote(null)}
-          onClick={(e) => {
-            e.stopPropagation();
-          }}
+          onClick={(e) => e.stopPropagation()}
         >
-          {isDraggingThis && (
-            <div
-              className="absolute inset-0 rounded-xl pointer-events-none animate-pulse"
-              style={{
-                background:
-                  "radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%)",
-                transform: "scale(1.2)",
-                filter: "blur(10px)",
-              }}
-            />
-          )}
-
-          {isHovered && !isDraggingThis && (
-            <div
-              className="absolute inset-0 rounded-xl border-2 border-blue-300 pointer-events-none transition-all duration-200"
-              style={{
-                transform: "translate(-1px, -1px)",
-                opacity: 0.6,
-              }}
-            />
-          )}
-
           <Note
             id={note.id}
             title="Note"
@@ -231,10 +176,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             onContentChange={onNoteChange}
             onEditSave={onEditSave}
             onColorChange={onColorChange}
-            className={`
-            transition-all duration-200
-            ${isDraggingThis ? "shadow-2xl" : ""}
-          `}
             createdAt={note.created_at}
             createdBy={note.user_name || note.user_id || "Anonymous"}
             editedAt={note.edited_at}
@@ -249,7 +190,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     },
     [
       isDragging,
-      hoveredNote,
       editingNote,
       handleNotePointerDown,
       onNoteEdit,
@@ -294,21 +234,30 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
         {showControls && (
-          <div className="hidden md:block pointer-events-none bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 shadow-lg max-w-xs">
-            <div className="font-semibold flex justify-between  mb-2 text-gray-800">
-              Controls:
+          <div className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs">
+            <div className="font-semibold flex justify-between mb-3 text-gray-800">
+              Controls
               <button
-                className="pointer-events-auto"
+                className="pointer-events-auto p-1 -m-1 hover:bg-gray-100 rounded-lg transition-colors"
                 onClick={hideControls}
                 aria-label="Hide controls"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-1">
-              <div>• Drag notes to move them</div>
-              <div>• Click & drag empty space to pan</div>
-              <div>• Scroll/pinch to zoom</div>
+            <div className="space-y-2 text-gray-500">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                Drag notes to move them
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-pink-400"></span>
+                Click & drag empty space to pan
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                Scroll/pinch to zoom
+              </div>
             </div>
           </div>
         )}
