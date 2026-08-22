@@ -22,6 +22,13 @@ export const metadata: Metadata = {
     template: "%s | Live Notes",
   },
   description: "Interactive, real-time notes canvas with zoom and pan.",
+  icons: {
+    icon: [
+      { url: "/favicon.png", type: "image/png", sizes: "48x48" },
+      { url: "/icon.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
   alternates: {
     canonical: "/",
   },

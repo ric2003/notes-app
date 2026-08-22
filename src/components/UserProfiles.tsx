@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { UserIcon, LogIn, LogOut, X } from "lucide-react";
+import { UserIcon, LogOut, X } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
@@ -10,6 +10,7 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   type User,
 } from "firebase/auth";
 import {
@@ -25,6 +26,40 @@ import {
 interface UserProfilesProps {
   className?: string;
   isConnected?: boolean;
+}
+
+// Firebase returns raw strings like "Firebase: Error (auth/invalid-credential)".
+// Translate the common cases into something a human can act on.
+function firebaseAuthErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code)
+      : "";
+
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Wrong email or password.";
+    case "auth/email-already-in-use":
+      return "That email already has an account — try signing in instead.";
+    case "auth/invalid-email":
+      return "That doesn't look like a valid email address.";
+    case "auth/missing-password":
+      return "Please enter your password.";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters.";
+    case "auth/too-many-requests":
+      return "Too many attempts — please wait a moment and try again.";
+    case "auth/network-request-failed":
+      return "Network problem. Check your connection and try again.";
+    case "auth/popup-closed-by-user":
+      return "Google sign-in was cancelled.";
+    case "auth/popup-blocked":
+      return "Your browser blocked the sign-in window — allow popups and retry.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
 }
 
 function GoogleIcon() {
@@ -233,9 +268,7 @@ export default function UserProfiles({
       setEmail("");
       setPassword("");
     } catch (error: unknown) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Authentication failed"
-      );
+      setErrorMessage(firebaseAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -248,9 +281,26 @@ export default function UserProfiles({
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "Google sign-in failed"
-      );
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      // Popups get blocked or fail in embedded browsers; fall back to a
+      // full-page redirect, which survives those environments.
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request" ||
+        code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+          return;
+        } catch {
+          // fall through to the friendly error
+        }
+      }
+      setErrorMessage(firebaseAuthErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -469,30 +519,16 @@ export default function UserProfiles({
               </button>
             </div>
           ) : (
-            <>
-              <span className="text-sm font-medium text-gray-700">
-                Guest
-              </span>
-              <button
-                onClick={() => setShowAuthForm((s) => !s)}
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors duration-200"
-                title="Sign in"
-              >
-                <div className="flex items-center gap-2">
-                  {showAuthForm ? (
-                    <>
-                      <X className="w-4 h-4 -mr-1" />
-                      <span className="pr-3">Close</span>
-                    </>
-                  ) : (
-                    <>
-                      <LogIn className="w-4 h-4" />
-                      <span>Sign In</span>
-                    </>
-                  )}
-                </div>
-              </button>
-            </>
+            <button
+              onClick={() => setShowAuthForm((s) => !s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${
+                showAuthForm
+                  ? "bg-gray-100 text-gray-500"
+                  : "text-gray-800 hover:bg-gray-100"
+              }`}
+            >
+              Sign in
+            </button>
           )}
         </div>
       </div>
@@ -500,6 +536,18 @@ export default function UserProfiles({
       {/* Auth popover */}
       {!user && showAuthForm && (
         <div className="absolute top-14 right-0 w-80 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-5 z-50 animate-scale-in">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-semibold text-gray-900">
+              {authMode === "login" ? "Welcome back" : "Join the board"}
+            </span>
+            <button
+              onClick={() => setShowAuthForm(false)}
+              className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
           <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1">
             <button
               onClick={() => setAuthMode("login")}
