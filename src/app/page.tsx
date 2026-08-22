@@ -8,6 +8,7 @@ import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
+import MiniMap from "@/components/MiniMap";
 import {
   PlusIcon,
   AlertTriangle,
@@ -906,6 +907,11 @@ function HomeContent() {
       {/* Centered Zoom Controls */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 prevent-zoom">
         <ZoomControls notes={notes} />
+      </div>
+
+      {/* Minimap for navigating distant notes */}
+      <div className="absolute bottom-4 left-4 z-50 prevent-zoom">
+        <MiniMap notes={notes} />
       </div>
 
       {/* Toasts - Absolute positioned, themed */}
