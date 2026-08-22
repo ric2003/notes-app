@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
+import { NOTE_COLORS, NOTE_COLOR_NAMES, type NoteColorName } from "@/lib/noteColors";
 
 export interface NoteProps {
   id: string;
@@ -145,18 +146,18 @@ const Note: React.FC<NoteProps> = ({
     });
   };
 
-  // Saturated sticky-note shades (real Post-it palette), with a darker
-  // edge of the same hue instead of a gray border.
-  const colorStyles = {
-    yellow: { bg: "#FFE55C", border: "#E3BF22" },
-    pink: { bg: "#FF8FB5", border: "#E05788" },
-    green: { bg: "#8FD964", border: "#57AE38" },
-    blue: { bg: "#79CBEB", border: "#3D97C6" },
-    purple: { bg: "#C79FE8", border: "#9563C6" },
-    orange: { bg: "#FFAC60", border: "#E07A28" },
-  };
+  const colorStyles = NOTE_COLORS;
 
-  const currentStyle = colorStyles[color] || colorStyles.yellow;
+  const currentStyle =
+    colorStyles[color as NoteColorName] ?? colorStyles.yellow;
+
+  const cycleToNextColor = () => {
+    const currentIndex = NOTE_COLOR_NAMES.indexOf(
+      ((color || "blue") as NoteColorName)
+    );
+    const nextIndex = (currentIndex + 1) % NOTE_COLOR_NAMES.length;
+    onColorChange?.(id, NOTE_COLOR_NAMES[nextIndex]);
+  };
 
   // Deterministic tilt per note, so the board looks hand-decorated
   // rather than machine-aligned. Same id always gets the same angle.
@@ -230,18 +231,7 @@ const Note: React.FC<NoteProps> = ({
   };
 
   const handleColorChange = () => {
-    const colors: NoteProps["color"][] = [
-      "yellow",
-      "blue",
-      "green",
-      "pink",
-      "purple",
-      "orange",
-    ];
-    const currentIndex = colors.indexOf(color || "blue");
-    const nextIndex = (currentIndex + 1) % colors.length;
-    const nextColor = colors[nextIndex];
-    onColorChange?.(id, nextColor || "yellow");
+    cycleToNextColor();
   };
 
   return (

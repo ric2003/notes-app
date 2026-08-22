@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
+import {
+  NOTE_COLORS,
+  NOTE_COLOR_NAMES,
+  type NoteColorName,
+} from "@/lib/noteColors";
 
 interface NoteData {
   id: string;
@@ -171,17 +176,14 @@ function HomeContent() {
     return Array.from(uniqueMap.values());
   };
 
-  function randomColor() {
-    const colors: NoteProps["color"][] = [
-      "blue",
-      "green",
-      "pink",
-      "purple",
-      "orange",
-      "yellow",
+  function pickRandomColor(): NoteColorName {
+    return NOTE_COLOR_NAMES[
+      Math.floor(Math.random() * NOTE_COLOR_NAMES.length)
     ];
-    return colors[Math.floor(Math.random() * colors.length)];
   }
+
+  // The plus chip previews the color the next note will get
+  const [nextColor, setNextColor] = useState<NoteColorName>(pickRandomColor);
 
   // Note dimensions (should match `w-80` and `min-h-56` from `Note.tsx`)
   const NOTE_WIDTH = 320;
@@ -227,13 +229,15 @@ function HomeContent() {
     const worldCoords = screenToWorld(screenX, screenY);
     const body = {
       content: "",
-      color: randomColor(),
+      color: nextColor,
       // Center the note around the screen/world point
       position_x: worldCoords.x - NOTE_WIDTH / 2,
       position_y: worldCoords.y - NOTE_HEIGHT / 2,
       user_id: user?.uid ?? null,
       user_name: user?.displayName || user?.email || null,
     };
+    // Queue up a different shade for the note after this one
+    setNextColor(pickRandomColor());
 
     try {
       const res = await fetch("/api/notes", {
@@ -888,8 +892,11 @@ function HomeContent() {
           }}
           className="group flex items-center gap-2.5 px-5 py-2.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5"
         >
-          <div className="p-1 bg-blue-500 rounded-lg shadow-sm group-hover:scale-102 transition-transform duration-300">
-            <PlusIcon className="w-4 h-4 text-white" />
+          <div
+            className="p-1 rounded-lg shadow-sm transition-colors duration-300 group-hover:scale-102"
+            style={{ backgroundColor: NOTE_COLORS[nextColor].bg }}
+          >
+            <PlusIcon className="w-4 h-4 text-gray-800/70" />
           </div>
           <span className="hidden sm:inline">Create Note</span>
         </button>
