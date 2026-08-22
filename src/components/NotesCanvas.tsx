@@ -81,8 +81,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     [onPointerDown]
   );
 
-  const GRID_SIZE = 20;
-
   const backgroundStyle = useMemo(() => {
     // Clean white paper background
     return {
@@ -105,23 +103,29 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
     const connections: React.ReactElement[] = [];
     const NOTE_THRESHOLD = 150;
+    const seenPairs = new Set<string>();
 
     notes.forEach((note1, i) => {
       notes.slice(i + 1).forEach((note2) => {
+        if (note1.id === note2.id) return;
+        const pairKey = [note1.id, note2.id].sort().join("|");
+        if (seenPairs.has(pairKey)) return;
+
         const distance = Math.sqrt(
           Math.pow(note1.position_x - note2.position_x, 2) +
           Math.pow(note1.position_y - note2.position_y, 2)
         );
 
         if (distance < NOTE_THRESHOLD) {
+          seenPairs.add(pairKey);
           const opacity = Math.max(0.1, 1 - distance / NOTE_THRESHOLD) * 0.3;
           connections.push(
             <line
-              key={`${note1.id}-${note2.id}`}
-              x1={note1.position_x + 128}
-              y1={note1.position_y + 96}
-              x2={note2.position_x + 128}
-              y2={note2.position_y + 96}
+              key={pairKey}
+              x1={note1.position_x + 160}
+              y1={note1.position_y + 112}
+              x2={note2.position_x + 160}
+              y2={note2.position_y + 112}
               stroke="rgba(99, 102, 241, 0.4)"
               strokeWidth={Math.max(0.5, 1 / zoom)}
               opacity={opacity}
@@ -167,7 +171,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         >
           <Note
             id={note.id}
-            title="Note"
             content={note.content}
             color={(note.color as NoteProps["color"]) || "blue"}
             isEditing={editingNote === note.id}

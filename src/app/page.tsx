@@ -8,7 +8,12 @@ import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
-import { PlusIcon, AlertTriangle } from "lucide-react";
+import {
+  PlusIcon,
+  AlertTriangle,
+  CheckCircle,
+  Info,
+} from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 
@@ -127,7 +132,6 @@ function HomeContent() {
       const data = await res.json();
       const loaded: NoteData[] = Array.isArray(data?.notes) ? data.notes : [];
       const uniqueNotes = ensureUniqueNotes(loaded);
-      console.log(`Loaded ${uniqueNotes.length} unique notes via API`);
       setNotes(uniqueNotes);
     } catch (error) {
       console.error("Error loading notes:", error);
@@ -137,8 +141,6 @@ function HomeContent() {
   async function syncPendingUpdates() {
     if (pendingUpdates.size === 0) return;
 
-    console.log(`Syncing ${pendingUpdates.size} pending updates...`);
-
     for (const [noteId, updates] of pendingUpdates.entries()) {
       try {
         const res = await fetch(`/api/notes/${noteId}`, {
@@ -147,7 +149,6 @@ function HomeContent() {
           body: JSON.stringify({ ...updates }),
         });
         if (!res.ok) throw new Error(`Status ${res.status}`);
-        console.log(`Synced update for note ${noteId}`);
       } catch (error) {
         console.error(`Failed to sync update for note ${noteId}:`, error);
       }
@@ -180,7 +181,9 @@ function HomeContent() {
       const data = await res.json();
       const created = data?.note as NoteData | undefined;
       if (created) {
-        setNotes((prev) => [...prev, created]);
+        setNotes((prev) =>
+          prev.some((n) => n.id === created.id) ? prev : [...prev, created]
+        );
       }
     } catch (error) {
       console.error("Error creating note:", error);
@@ -743,7 +746,6 @@ function HomeContent() {
       {/* Floating controls - Top Left and Right */}
       <div
         className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
-        style={{ transform: "scale(1)", transformOrigin: "top left" }}
       >
         <button
           onClick={() => {
@@ -781,13 +783,21 @@ function HomeContent() {
               ${t.type === "error" ? "bg-rose-50/95 border-rose-200" : ""}
             `}
           >
-            <div className={`w-5 h-5 flex items-center justify-center
-              ${t.type === "success" ? "text-emerald-500" : ""}
-              ${t.type === "info" ? "text-sky-500" : ""}
-              ${t.type === "warning" ? "text-amber-500" : ""}
-              ${t.type === "error" ? "text-rose-500" : ""}
-            `}>
-              <AlertTriangle className="w-5 h-5" />
+            <div
+              className={`w-5 h-5 flex items-center justify-center
+                ${t.type === "success" ? "text-emerald-500" : ""}
+                ${t.type === "info" ? "text-sky-500" : ""}
+                ${t.type === "warning" ? "text-amber-500" : ""}
+                ${t.type === "error" ? "text-rose-500" : ""}
+              `}
+            >
+              {t.type === "success" ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : t.type === "info" ? (
+                <Info className="w-5 h-5" />
+              ) : (
+                <AlertTriangle className="w-5 h-5" />
+              )}
             </div>
             <span className="text-sm font-medium text-gray-700">
               {t.message}
