@@ -237,7 +237,12 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
         {showControls && (
-          <div className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs">
+          <div
+            className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs"
+            // Keep presses here from starting a canvas pan/pointer-capture,
+            // which would swallow the close button's click
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             <div className="font-semibold flex justify-between mb-3 text-gray-800">
               Controls
               <button

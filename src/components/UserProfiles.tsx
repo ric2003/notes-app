@@ -301,7 +301,7 @@ export default function UserProfiles({
   }, [totalOnline]);
 
   return (
-    <div className={`relative flex items-center ${className}`}>
+    <div className={`relative flex items-center gap-2 ${className}`}>
       {/* Users Stack - Online presence */}
       {otherUsers.length > 0 && (
         <div

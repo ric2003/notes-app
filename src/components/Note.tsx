@@ -41,6 +41,9 @@ const Note: React.FC<NoteProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [localContent, setLocalContent] = useState(content);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Tracks unsaved keystrokes so we can flush them when the tab hides/closes
+  const isDirtyRef = useRef(false);
+  const localContentRef = useRef(localContent);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isMacPlatform =
     typeof window !== "undefined" &&
@@ -74,12 +77,52 @@ const Note: React.FC<NoteProps> = ({
     }
   }, [isEditing]);
 
+  localContentRef.current = localContent;
+
+  // Flush unsaved edits when the tab is hidden or closed — the debounce
+  // window would otherwise swallow the last second of typing.
+  useEffect(() => {
+    const flush = () => {
+      if (!isDirtyRef.current) return;
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
+      }
+      onContentChange?.(id, localContentRef.current);
+      isDirtyRef.current = false;
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [id, onContentChange]);
+
+  // Flush unsaved edits when editing ends for any reason (Esc, clicking
+  // the board, opening another note) — not just on blur.
+  useEffect(() => {
+    if (!isEditing && isDirtyRef.current) {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
+      }
+      onContentChange?.(id, localContentRef.current);
+      isDirtyRef.current = false;
+    }
+  }, [isEditing, id, onContentChange]);
+
   const debouncedContentChange = useCallback(
     (newContent: string) => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
       debounceTimeoutRef.current = setTimeout(() => {
+        debounceTimeoutRef.current = null;
+        isDirtyRef.current = false;
         onContentChange?.(id, newContent);
       }, 1000);
     },
@@ -135,6 +178,7 @@ const Note: React.FC<NoteProps> = ({
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setLocalContent(newContent);
+    isDirtyRef.current = true;
     // Only debounce if we're not in editing mode to avoid blocking
     if (!isEditing) {
       debouncedContentChange(newContent);
@@ -145,7 +189,9 @@ const Note: React.FC<NoteProps> = ({
     // Clear any pending debounced changes
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = null;
     }
+    isDirtyRef.current = false;
     // Save the current content immediately when user finishes editing
     onContentChange?.(id, localContent);
     onEditSave?.(id);
