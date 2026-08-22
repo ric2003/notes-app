@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useCallback, useState, useMemo } from "react";
+import { useRef, useCallback, useState, useMemo, useEffect } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import Note, { NoteProps } from "@/components/Note";
-import { X } from "lucide-react";
+import { X, CircleHelp } from "lucide-react";
 
 interface NoteData {
   id: string;
@@ -55,6 +55,31 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showControls, setShowControls] = useState(true);
 
+  // Remember dismissal across reloads
+  const CONTROLS_HIDDEN_KEY = "notesAppControlsHidden";
+
+  useEffect(() => {
+    try {
+      setShowControls(window.localStorage.getItem(CONTROLS_HIDDEN_KEY) !== "1");
+    } catch {
+      // Storage unavailable; just show the card
+    }
+  }, []);
+
+  const hideControls = () => {
+    setShowControls(false);
+    try {
+      window.localStorage.setItem(CONTROLS_HIDDEN_KEY, "1");
+    } catch {}
+  };
+
+  const restoreControls = () => {
+    setShowControls(true);
+    try {
+      window.localStorage.removeItem(CONTROLS_HIDDEN_KEY);
+    } catch {}
+  };
+
   const handleCanvasPointerDown = useCallback(
     (e: React.PointerEvent) => {
       onCanvasPointerDown?.(e);
@@ -92,10 +117,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       `,
     };
   }, []);
-
-  const hideControls = () => {
-    setShowControls(false);
-  };
 
   // Connection lines
   const renderConnectionLines = useCallback(() => {
@@ -236,7 +257,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       </div>
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
-        {showControls && (
+        {showControls ? (
           <div
             className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs"
             // Keep presses here from starting a canvas pan/pointer-capture,
@@ -268,6 +289,16 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
               </div>
             </div>
           </div>
+        ) : (
+          <button
+            className="hidden md:flex pointer-events-auto items-center justify-center w-9 h-9 bg-white/85 backdrop-blur-xl border border-white/60 rounded-xl shadow-lg text-gray-500 hover:text-gray-800 hover:bg-white transition-colors"
+            onClick={restoreControls}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="Show controls help"
+            title="Show controls"
+          >
+            <CircleHelp className="w-4.5 h-4.5" />
+          </button>
         )}
       </div>
     </div>
