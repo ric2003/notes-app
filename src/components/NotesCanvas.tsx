@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useCallback, useState, useMemo } from "react";
+import { useRef, useCallback, useState, useMemo, useEffect } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import Note, { NoteProps } from "@/components/Note";
-import { X } from "lucide-react";
+import { X, CircleHelp } from "lucide-react";
 
 interface NoteData {
   id: string;
@@ -55,6 +55,31 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showControls, setShowControls] = useState(true);
 
+  // Remember dismissal across reloads
+  const CONTROLS_HIDDEN_KEY = "notesAppControlsHidden";
+
+  useEffect(() => {
+    try {
+      setShowControls(window.localStorage.getItem(CONTROLS_HIDDEN_KEY) !== "1");
+    } catch {
+      // Storage unavailable; just show the card
+    }
+  }, []);
+
+  const hideControls = () => {
+    setShowControls(false);
+    try {
+      window.localStorage.setItem(CONTROLS_HIDDEN_KEY, "1");
+    } catch {}
+  };
+
+  const restoreControls = () => {
+    setShowControls(true);
+    try {
+      window.localStorage.removeItem(CONTROLS_HIDDEN_KEY);
+    } catch {}
+  };
+
   const handleCanvasPointerDown = useCallback(
     (e: React.PointerEvent) => {
       onCanvasPointerDown?.(e);
@@ -81,8 +106,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     [onPointerDown]
   );
 
-  const GRID_SIZE = 20;
-
   const backgroundStyle = useMemo(() => {
     // Clean white paper background
     return {
@@ -95,33 +118,35 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     };
   }, []);
 
-  const hideControls = () => {
-    setShowControls(false);
-  };
-
   // Connection lines
   const renderConnectionLines = useCallback(() => {
     if (zoom < 0.5 || notes.length < 2) return null;
 
     const connections: React.ReactElement[] = [];
     const NOTE_THRESHOLD = 150;
+    const seenPairs = new Set<string>();
 
     notes.forEach((note1, i) => {
       notes.slice(i + 1).forEach((note2) => {
+        if (note1.id === note2.id) return;
+        const pairKey = [note1.id, note2.id].sort().join("|");
+        if (seenPairs.has(pairKey)) return;
+
         const distance = Math.sqrt(
           Math.pow(note1.position_x - note2.position_x, 2) +
           Math.pow(note1.position_y - note2.position_y, 2)
         );
 
         if (distance < NOTE_THRESHOLD) {
+          seenPairs.add(pairKey);
           const opacity = Math.max(0.1, 1 - distance / NOTE_THRESHOLD) * 0.3;
           connections.push(
             <line
-              key={`${note1.id}-${note2.id}`}
-              x1={note1.position_x + 128}
-              y1={note1.position_y + 96}
-              x2={note2.position_x + 128}
-              y2={note2.position_y + 96}
+              key={pairKey}
+              x1={note1.position_x + 160}
+              y1={note1.position_y + 112}
+              x2={note2.position_x + 160}
+              y2={note2.position_y + 112}
               stroke="rgba(99, 102, 241, 0.4)"
               strokeWidth={Math.max(0.5, 1 / zoom)}
               opacity={opacity}
@@ -167,7 +192,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         >
           <Note
             id={note.id}
-            title="Note"
             content={note.content}
             color={(note.color as NoteProps["color"]) || "blue"}
             isEditing={editingNote === note.id}
@@ -233,8 +257,13 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       </div>
 
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
-        {showControls && (
-          <div className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs">
+        {showControls ? (
+          <div
+            className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs"
+            // Keep presses here from starting a canvas pan/pointer-capture,
+            // which would swallow the close button's click
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             <div className="font-semibold flex justify-between mb-3 text-gray-800">
               Controls
               <button
@@ -260,6 +289,16 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
               </div>
             </div>
           </div>
+        ) : (
+          <button
+            className="hidden md:flex pointer-events-auto items-center justify-center w-9 h-9 bg-white/85 backdrop-blur-xl border border-white/60 rounded-xl shadow-lg text-gray-500 hover:text-gray-800 hover:bg-white transition-colors"
+            onClick={restoreControls}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="Show controls help"
+            title="Show controls"
+          >
+            <CircleHelp className="w-4.5 h-4.5" />
+          </button>
         )}
       </div>
     </div>

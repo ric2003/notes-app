@@ -13,6 +13,8 @@ interface ZoomContextType {
   panX: number;
   panY: number;
   isAnimating: boolean;
+  containerWidth: number;
+  containerHeight: number;
   setZoom: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
   zoomIn: () => void;
@@ -150,6 +152,8 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
     panX,
     panY,
     isAnimating,
+    containerWidth,
+    containerHeight,
     setZoom,
     setPan,
     zoomIn,

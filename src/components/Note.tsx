@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
-import RainbowIcon from "./RainbowIcon";
+import { NOTE_COLORS, NOTE_COLOR_NAMES, type NoteColorName } from "@/lib/noteColors";
 
 export interface NoteProps {
   id: string;
-  title: string;
   content: string;
   color?: "yellow" | "blue" | "green" | "pink" | "purple" | "orange";
   isEditing?: boolean;
@@ -43,6 +42,9 @@ const Note: React.FC<NoteProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [localContent, setLocalContent] = useState(content);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Tracks unsaved keystrokes so we can flush them when the tab hides/closes
+  const isDirtyRef = useRef(false);
+  const localContentRef = useRef(localContent);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isMacPlatform =
     typeof window !== "undefined" &&
@@ -76,12 +78,52 @@ const Note: React.FC<NoteProps> = ({
     }
   }, [isEditing]);
 
+  localContentRef.current = localContent;
+
+  // Flush unsaved edits when the tab is hidden or closed — the debounce
+  // window would otherwise swallow the last second of typing.
+  useEffect(() => {
+    const flush = () => {
+      if (!isDirtyRef.current) return;
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
+      }
+      onContentChange?.(id, localContentRef.current);
+      isDirtyRef.current = false;
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [id, onContentChange]);
+
+  // Flush unsaved edits when editing ends for any reason (Esc, clicking
+  // the board, opening another note) — not just on blur.
+  useEffect(() => {
+    if (!isEditing && isDirtyRef.current) {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
+      }
+      onContentChange?.(id, localContentRef.current);
+      isDirtyRef.current = false;
+    }
+  }, [isEditing, id, onContentChange]);
+
   const debouncedContentChange = useCallback(
     (newContent: string) => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
       debounceTimeoutRef.current = setTimeout(() => {
+        debounceTimeoutRef.current = null;
+        isDirtyRef.current = false;
         onContentChange?.(id, newContent);
       }, 1000);
     },
@@ -104,46 +146,26 @@ const Note: React.FC<NoteProps> = ({
     });
   };
 
-  const colorStyles = {
-    yellow: {
-      bg: "bg-gradient-to-br from-amber-50 via-yellow-100 to-amber-200",
-      border: "border-amber-300/70",
-      shadow: "shadow-amber-200/40",
-      accent: "#f59e0b",
-    },
-    blue: {
-      bg: "bg-gradient-to-br from-sky-50 via-blue-100 to-indigo-200",
-      border: "border-blue-300/70",
-      shadow: "shadow-blue-200/40",
-      accent: "#3b82f6",
-    },
-    green: {
-      bg: "bg-gradient-to-br from-emerald-50 via-green-100 to-teal-200",
-      border: "border-emerald-300/70",
-      shadow: "shadow-emerald-200/40",
-      accent: "#10b981",
-    },
-    pink: {
-      bg: "bg-gradient-to-br from-pink-50 via-rose-100 to-pink-200",
-      border: "border-pink-300/70",
-      shadow: "shadow-pink-200/40",
-      accent: "#ec4899",
-    },
-    purple: {
-      bg: "bg-gradient-to-br from-violet-50 via-purple-100 to-indigo-200",
-      border: "border-purple-300/70",
-      shadow: "shadow-purple-200/40",
-      accent: "#8b5cf6",
-    },
-    orange: {
-      bg: "bg-gradient-to-br from-orange-50 via-orange-100 to-amber-200",
-      border: "border-orange-300/70",
-      shadow: "shadow-orange-200/40",
-      accent: "#f97316",
-    },
+  const colorStyles = NOTE_COLORS;
+
+  const currentStyle =
+    colorStyles[color as NoteColorName] ?? colorStyles.yellow;
+
+  const cycleToNextColor = () => {
+    const currentIndex = NOTE_COLOR_NAMES.indexOf(
+      ((color || "blue") as NoteColorName)
+    );
+    const nextIndex = (currentIndex + 1) % NOTE_COLOR_NAMES.length;
+    onColorChange?.(id, NOTE_COLOR_NAMES[nextIndex]);
   };
 
-  const currentStyle = colorStyles[color] || colorStyles.yellow;
+  // Deterministic tilt per note, so the board looks hand-decorated
+  // rather than machine-aligned. Same id always gets the same angle.
+  const tiltDeg = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+    return ((hash % 9) - 4) * 0.5; // -2deg .. +2deg
+  }, [id]);
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -157,6 +179,7 @@ const Note: React.FC<NoteProps> = ({
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setLocalContent(newContent);
+    isDirtyRef.current = true;
     // Only debounce if we're not in editing mode to avoid blocking
     if (!isEditing) {
       debouncedContentChange(newContent);
@@ -167,7 +190,9 @@ const Note: React.FC<NoteProps> = ({
     // Clear any pending debounced changes
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = null;
     }
+    isDirtyRef.current = false;
     // Save the current content immediately when user finishes editing
     onContentChange?.(id, localContent);
     onEditSave?.(id);
@@ -196,7 +221,7 @@ const Note: React.FC<NoteProps> = ({
     }
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDelete = () => {
     onDelete?.(id);
   };
 
@@ -205,42 +230,46 @@ const Note: React.FC<NoteProps> = ({
     onToggleStar?.(id);
   };
 
-  const handleColorChange = (e: React.MouseEvent) => {
-    const colors: NoteProps["color"][] = [
-      "yellow",
-      "blue",
-      "green",
-      "pink",
-      "purple",
-      "orange",
-    ];
-    const currentIndex = colors.indexOf(color || "blue");
-    const nextIndex = (currentIndex + 1) % colors.length;
-    const nextColor = colors[nextIndex];
-    onColorChange?.(id, nextColor || "yellow");
+  const handleColorChange = () => {
+    cycleToNextColor();
   };
 
   return (
     <div
       className={`
-        relative w-80 min-h-56 p-5 rounded-2xl border transition-all duration-300 ease-out
-        ${currentStyle.bg} ${currentStyle.border}
-        ${isHovered ? `shadow-xl ${currentStyle.shadow} scale-[1.02]` : "shadow-lg shadow-gray-200/50"}
+        relative w-80 min-h-56 p-5 pt-7 border-2
+        transition-transform duration-200 ease-out
+        ${isHovered ? "shadow-[0_10px_24px_rgba(0,0,0,0.18)]" : "shadow-[0_3px_10px_rgba(0,0,0,0.12)]"}
         ${className}
       `}
       style={{
-        willChange: "transform",
-        backdropFilter: "blur(8px)",
+        backgroundColor: currentStyle.bg,
+        borderColor: currentStyle.border,
+        borderRadius: "26px 6px 24px 6px / 6px 24px 6px 26px",
+        transform: isHovered
+          ? "rotate(0deg) translateY(-2px)"
+          : `rotate(${tiltDeg}deg)`,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
+      {/* Masking tape — same beige strip on every note */}
+      <div
+        aria-hidden
+        className="absolute -top-2.5 left-1/2 h-5 w-20 -translate-x-1/2 -rotate-3"
+        style={{
+          backgroundColor: "rgba(233, 220, 180, 0.75)",
+          borderRadius: "2px",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.12), inset 0 0 4px rgba(255,255,255,0.5)",
+        }}
+      />
+
       {/* Star button + count (Top-left) */}
       <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
         <button
           onClick={handleToggleStar}
           className={`p-1.5 rounded-xl shadow-sm border transition-all duration-200 hover:scale-110 hover:shadow-md ${isStarred
-            ? "bg-gradient-to-br from-amber-50 to-yellow-100 border-amber-300"
+            ? "bg-amber-50 border-amber-300"
             : "bg-white/90 hover:bg-white border-gray-200/80"
             }`}
           title={isStarred ? "Unstar note" : "Star note"}
@@ -267,12 +296,12 @@ const Note: React.FC<NoteProps> = ({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            handleColorChange(e);
+            handleColorChange();
           }}
           className="p-1.5 bg-white/90 hover:bg-white rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md z-10"
           title="Change color"
         >
-          <RainbowIcon icon={Paintbrush} size={15} />
+          <Paintbrush size={15} className="text-gray-500" />
         </button>
         <button
           onClick={handleEdit}
@@ -284,7 +313,7 @@ const Note: React.FC<NoteProps> = ({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            handleDelete(e);
+            handleDelete();
           }}
           className="p-1.5 bg-white/90 hover:bg-rose-50 rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md hover:border-rose-200 z-10"
           title="Delete note"
@@ -303,7 +332,7 @@ const Note: React.FC<NoteProps> = ({
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
-              className="w-full h-28 p-3 text-gray-700 leading-relaxed bg-white/60 border border-gray-200/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300/50 focus:border-indigo-300 text-sm placeholder:text-gray-400 transition-all duration-200"
+              className="w-full h-28 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-sm placeholder:text-gray-500 transition-all duration-200"
               placeholder="Type your note here..."
             />
             <div className="text-[11px] text-gray-400 font-medium">
@@ -314,14 +343,14 @@ const Note: React.FC<NoteProps> = ({
           </div>
         ) : (
           <p
-            className="text-gray-600 leading-relaxed text-sm line-clamp-5 cursor-pointer hover:text-gray-800 transition-colors duration-200"
+            className="text-gray-800 leading-relaxed text-sm line-clamp-5 cursor-pointer hover:text-black transition-colors duration-200"
             onClick={handleEdit}
             role="button"
             tabIndex={0}
             onKeyDown={handleContentKeyDown}
           >
             {localContent || (
-              <span className="text-gray-400 italic">Click to add content...</span>
+              <span className="text-gray-500 italic">Click to add content...</span>
             )}
           </p>
         )}
@@ -330,12 +359,12 @@ const Note: React.FC<NoteProps> = ({
       {/* Note Footer */}
       <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
         {/* Date */}
-        <div className="flex items-center gap-2 text-[11px] text-gray-400">
+        <div className="flex items-center gap-2 text-[11px] text-gray-600">
           <span className="font-medium">{formatDate(createdAt)}</span>
           {editedAt && editedAt !== createdAt && (
-            <div className="flex items-center gap-1 bg-white/80 border border-gray-200/60 rounded-lg px-2 py-0.5">
-              <Pen size={9} className="text-gray-400" />
-              <span className="font-medium text-gray-500">
+            <div className="flex items-center gap-1 bg-white/80 border border-gray-300/60 rounded-lg px-2 py-0.5">
+              <Pen size={9} className="text-gray-500" />
+              <span className="font-medium text-gray-700">
                 {formatDate(editedAt)}
               </span>
             </div>
@@ -344,7 +373,7 @@ const Note: React.FC<NoteProps> = ({
 
         {/* User */}
         <div className="flex items-center gap-2 bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm px-2.5 py-1">
-          <div className="w-5 h-5 rounded-lg bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center shadow-sm">
+          <div className="w-5 h-5 rounded-lg bg-indigo-400 flex items-center justify-center shadow-sm">
             <span className="font-semibold text-white text-[10px]">
               {createdBy.charAt(0).toUpperCase()}
             </span>
@@ -354,12 +383,6 @@ const Note: React.FC<NoteProps> = ({
           </span>
         </div>
       </div>
-
-      {/* Subtle bottom accent */}
-      <div
-        className="absolute -bottom-px left-4 right-4 h-px rounded-full opacity-30"
-        style={{ background: `linear-gradient(90deg, transparent, ${(colorStyles[color] || colorStyles.yellow).accent}, transparent)` }}
-      />
     </div>
   );
 };

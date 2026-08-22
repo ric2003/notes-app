@@ -19,13 +19,39 @@ import {
   set,
   remove,
   serverTimestamp,
-  get,
   update,
 } from "firebase/database";
 
 interface UserProfilesProps {
   className?: string;
   isConnected?: boolean;
+}
+
+function GoogleIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 48 48"
+      className="w-4 h-4"
+    >
+      <path
+        fill="#FFC107"
+        d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12 s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24 s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.306,14.691l6.571,4.819C14.655,16.177,19.001,13,24,13c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657 C34.046,6.053,29.268,4,24,4C16.318,4,9.74,8.337,6.306,14.691z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36 c-5.202,0-9.619-3.329-11.281-7.964l-6.497,5.007C9.594,40.556,16.227,44,24,44z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.611,20.083H42V20H24v8h11.303c-0.794,2.24-2.231,4.161-4.103,5.571 c0.001-0.001,0.001-0.001,0.002-0.002l6.19,5.238C35.241,40.205,44,36,44,24C44,22.659,43.862,21.35,43.611,20.083z"
+      />
+    </svg>
+  );
 }
 
 export default function UserProfiles({
@@ -55,8 +81,6 @@ export default function UserProfiles({
 
   // Auth modes and inputs
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-
-  // No profile editor state (use auth only)
 
   // Ensure we have a stable anonymous session identifier for presence
   useEffect(() => {
@@ -106,8 +130,6 @@ export default function UserProfiles({
     });
     return () => unsub();
   }, [sessionId]);
-
-  // No RTDB profile load; rely on auth only
 
   // Keep presence up to date in Realtime Database
   useEffect(() => {
@@ -195,7 +217,7 @@ export default function UserProfiles({
     return () => unsubscribe();
   }, []);
 
-  const handleSignUp = async () => {
+  const submitAuth = async () => {
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
@@ -203,36 +225,32 @@ export default function UserProfiles({
         setErrorMessage("Please provide email and password.");
         return;
       }
-
-      await createUserWithEmailAndPassword(auth, email, password);
-
-      // No nickname required at signup; users can set it later in profile editor
+      if (authMode === "signup") {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
       setEmail("");
       setPassword("");
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage("Failed to sign up");
-      }
+      setErrorMessage(
+        error instanceof Error ? error.message : "Authentication failed"
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleLogin = async () => {
+  const signInWithGoogle = async () => {
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
-      await signInWithEmailAndPassword(auth, email, password);
-      setEmail("");
-      setPassword("");
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage("Failed to log in");
-      }
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err: unknown) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Google sign-in failed"
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -248,7 +266,7 @@ export default function UserProfiles({
         }).catch(() => { });
       }
       await signOut(auth);
-    } catch (error) {
+    } catch {
       // no-op
     }
   };
@@ -283,7 +301,7 @@ export default function UserProfiles({
   }, [totalOnline]);
 
   return (
-    <div className={`relative flex items-center ${className}`}>
+    <div className={`relative flex items-center gap-2 ${className}`}>
       {/* Users Stack - Online presence */}
       {otherUsers.length > 0 && (
         <div
@@ -395,9 +413,6 @@ export default function UserProfiles({
         </div>
       )}
 
-      {/* Separator */}
-      <div className="mx-1"></div>
-
       {/* User Profile */}
       <div className="flex items-center">
         {/* Combined profile and name container */}
@@ -455,11 +470,9 @@ export default function UserProfiles({
             </div>
           ) : (
             <>
-              {!user && (
-                <div>
-                  <p>Anonymous | &nbsp;</p>
-                </div>
-              )}
+              <span className="text-sm font-medium text-gray-700">
+                Guest
+              </span>
               <button
                 onClick={() => setShowAuthForm((s) => !s)}
                 className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors duration-200"
@@ -501,165 +514,48 @@ export default function UserProfiles({
               Sign Up
             </button>
           </div>
-          {authMode === "login" ? (
-            <div className="flex flex-col gap-2">
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              />
-              {errorMessage && (
-                <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
-              )}
-              <button
-                onClick={handleLogin}
-                disabled={isSubmitting}
-                className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
-              >
-                Log In
-              </button>
-              <div className="relative my-2">
-                <div className="w-full h-px bg-gray-200" />
-                <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
-                  or
-                </div>
+          <div className="flex flex-col gap-2">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+            />
+            {errorMessage && (
+              <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
+            )}
+            <button
+              onClick={submitAuth}
+              disabled={isSubmitting}
+              className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
+            >
+              {authMode === "login" ? "Log In" : "Create Account"}
+            </button>
+            <div className="relative my-2">
+              <div className="w-full h-px bg-gray-200" />
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
+                or
               </div>
-              <button
-                onClick={async () => {
-                  try {
-                    setIsSubmitting(true);
-                    setErrorMessage(null);
-                    const provider = new GoogleAuthProvider();
-                    await signInWithPopup(auth, provider);
-                  } catch (err: unknown) {
-                    setErrorMessage(
-                      err instanceof Error
-                        ? err.message
-                        : "Google sign-in failed"
-                    );
-                  } finally {
-                    setIsSubmitting(false);
-                  }
-                }}
-                disabled={isSubmitting}
-                className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 48 48"
-                  className="w-4 h-4"
-                >
-                  <path
-                    fill="#FFC107"
-                    d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12 s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24 s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"
-                  />
-                  <path
-                    fill="#FF3D00"
-                    d="M6.306,14.691l6.571,4.819C14.655,16.177,19.001,13,24,13c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657 C34.046,6.053,29.268,4,24,4C16.318,4,9.74,8.337,6.306,14.691z"
-                  />
-                  <path
-                    fill="#4CAF50"
-                    d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36 c-5.202,0-9.619-3.329-11.281-7.964l-6.497,5.007C9.594,40.556,16.227,44,24,44z"
-                  />
-                  <path
-                    fill="#1976D2"
-                    d="M43.611,20.083H42V20H24v8h11.303c-0.794,2.24-2.231,4.161-4.103,5.571 c0.001-0.001,0.001-0.001,0.002-0.002l6.19,5.238C35.241,40.205,44,36,44,24C44,22.659,43.862,21.35,43.611,20.083z"
-                  />
-                </svg>
-                <span>Continue with Google</span>
-              </button>
             </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              />
-              {errorMessage && (
-                <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
-              )}
-              <button
-                onClick={handleSignUp}
-                disabled={isSubmitting}
-                className="mt-1 w-full px-3 py-2 bg-gray-900 text-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                Create Account
-              </button>
-              <div className="relative my-2">
-                <div className="w-full h-px bg-gray-200" />
-                <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
-                  or
-                </div>
-              </div>
-              <button
-                onClick={async () => {
-                  try {
-                    setIsSubmitting(true);
-                    setErrorMessage(null);
-                    const provider = new GoogleAuthProvider();
-                    await signInWithPopup(auth, provider);
-                  } catch (err: unknown) {
-                    setErrorMessage(
-                      err instanceof Error
-                        ? err.message
-                        : "Google sign-in failed"
-                    );
-                  } finally {
-                    setIsSubmitting(false);
-                  }
-                }}
-                disabled={isSubmitting}
-                className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 48 48"
-                  className="w-4 h-4"
-                >
-                  <path
-                    fill="#FFC107"
-                    d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12 s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24 s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"
-                  />
-                  <path
-                    fill="#FF3D00"
-                    d="M6.306,14.691l6.571,4.819C14.655,16.177,19.001,13,24,13c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657 C34.046,6.053,29.268,4,24,4C16.318,4,9.74,8.337,6.306,14.691z"
-                  />
-                  <path
-                    fill="#4CAF50"
-                    d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36 c-5.202,0-9.619-3.329-11.281-7.964l-6.497,5.007C9.594,40.556,16.227,44,24,44z"
-                  />
-                  <path
-                    fill="#1976D2"
-                    d="M43.611,20.083H42V20H24v8h11.303c-0.794,2.24-2.231,4.161-4.103,5.571 c0.001-0.001,0.001-0.001,0.002-0.002l6.19,5.238C35.241,40.205,44,36,44,24C44,22.659,43.862,21.35,43.611,20.083z"
-                  />
-                </svg>
-                <span>Continue with Google</span>
-              </button>
-            </div>
-          )}
+            <button
+              onClick={signInWithGoogle}
+              disabled={isSubmitting}
+              className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <GoogleIcon />
+              <span>Continue with Google</span>
+            </button>
+          </div>
         </div>
       )}
-
-      {/* Profile editor removed; rely on Google account for name/photo */}
     </div>
   );
 }

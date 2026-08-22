@@ -8,9 +8,20 @@ import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
-import { PlusIcon, AlertTriangle } from "lucide-react";
+import MiniMap from "@/components/MiniMap";
+import {
+  PlusIcon,
+  AlertTriangle,
+  CheckCircle,
+  Info,
+} from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
+import {
+  NOTE_COLORS,
+  NOTE_COLOR_NAMES,
+  type NoteColorName,
+} from "@/lib/noteColors";
 
 interface NoteData {
   id: string;
@@ -25,10 +36,16 @@ interface NoteData {
   stars?: Record<string, boolean>;
 }
 
+type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
 type ToastItem = {
   id: number;
   message: string;
   type?: "info" | "success" | "warning" | "error";
+  action?: ToastAction;
 };
 
 function HomeContent() {
@@ -42,6 +59,7 @@ function HomeContent() {
   const [pendingUpdates, setPendingUpdates] = useState<
     Map<string, Partial<NoteData>>
   >(new Map());
+  const pendingUpdatesRef = useRef(pendingUpdates);
   const [isPanning, setIsPanning] = useState(false);
   const lastPanPointRef = useRef({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -66,6 +84,14 @@ function HomeContent() {
   const panStateRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomStateRef = useRef<number>(1);
 
+  // Undoable deletes: notes stay in the DB during the grace window, so
+  // realtime updates for them must be filtered out until it expires.
+  const UNDO_WINDOW_MS = 6000;
+  const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
+  const pendingDeletesRef = useRef<Map<string, { note: NoteData; timer: number }>>(
+    new Map()
+  );
+
   useEffect(() => {
     panStateRef.current = { x: panX, y: panY };
   }, [panX, panY]);
@@ -74,16 +100,63 @@ function HomeContent() {
     zoomStateRef.current = zoom;
   }, [zoom]);
 
+  // Persist the offline queue so a refresh doesn't lose edits
+  const PENDING_UPDATES_KEY = "notesAppPendingUpdates";
+  const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PENDING_UPDATES_KEY);
+      if (raw) {
+        const entries = JSON.parse(raw) as [string, Partial<NoteData>][];
+        setPendingUpdates(new Map(entries));
+      }
+    } catch {
+      // Corrupt or unavailable storage; start clean
+    }
+    hydratedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    pendingUpdatesRef.current = pendingUpdates;
+    if (!hydratedRef.current) return;
+    try {
+      if (pendingUpdates.size === 0) {
+        window.localStorage.removeItem(PENDING_UPDATES_KEY);
+      } else {
+        window.localStorage.setItem(
+          PENDING_UPDATES_KEY,
+          JSON.stringify(Array.from(pendingUpdates.entries()))
+        );
+      }
+    } catch {
+      // Storage full or blocked; queue still lives in memory
+    }
+  }, [pendingUpdates]);
+
+  // Retry the offline queue when connectivity returns
+  useEffect(() => {
+    const handleOnline = () => syncPendingUpdates();
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function showToast(
     message: string,
     type: "info" | "success" | "warning" | "error" = "info",
-    durationMs = 2500
+    durationMs = 2500,
+    action?: ToastAction
   ) {
     const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => [...prev, { id, message, type, action }]);
     window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      dismissToast(id);
     }, durationMs);
+  }
+
+  function dismissToast(id: number) {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
   useEffect(() => {
@@ -104,17 +177,14 @@ function HomeContent() {
     return Array.from(uniqueMap.values());
   };
 
-  function randomColor() {
-    const colors: NoteProps["color"][] = [
-      "blue",
-      "green",
-      "pink",
-      "purple",
-      "orange",
-      "yellow",
+  function pickRandomColor(): NoteColorName {
+    return NOTE_COLOR_NAMES[
+      Math.floor(Math.random() * NOTE_COLOR_NAMES.length)
     ];
-    return colors[Math.floor(Math.random() * colors.length)];
   }
+
+  // The plus chip previews the color the next note will get
+  const [nextColor, setNextColor] = useState<NoteColorName>(pickRandomColor);
 
   // Note dimensions (should match `w-80` and `min-h-56` from `Note.tsx`)
   const NOTE_WIDTH = 320;
@@ -126,8 +196,9 @@ function HomeContent() {
       if (!res.ok) throw new Error(`Failed to load notes: ${res.status}`);
       const data = await res.json();
       const loaded: NoteData[] = Array.isArray(data?.notes) ? data.notes : [];
-      const uniqueNotes = ensureUniqueNotes(loaded);
-      console.log(`Loaded ${uniqueNotes.length} unique notes via API`);
+      const uniqueNotes = ensureUniqueNotes(loaded).filter(
+        (n) => !pendingDeleteIdsRef.current.has(n.id)
+      );
       setNotes(uniqueNotes);
     } catch (error) {
       console.error("Error loading notes:", error);
@@ -135,26 +206,23 @@ function HomeContent() {
   }
 
   async function syncPendingUpdates() {
-    if (pendingUpdates.size === 0) return;
+    const queue = pendingUpdatesRef.current;
+    if (queue.size === 0) return;
 
-    console.log(`Syncing ${pendingUpdates.size} pending updates...`);
-
-    for (const [noteId, updates] of pendingUpdates.entries()) {
+    for (const [noteId, updates] of queue.entries()) {
       try {
-        const res = await fetch(`/api/notes/${noteId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...updates }),
+        await patchNote(noteId, updates);
+        // Remove only successfully synced entries so failures are retried
+        setPendingUpdates((prev) => {
+          if (!prev.has(noteId)) return prev;
+          const next = new Map(prev);
+          next.delete(noteId);
+          return next;
         });
-        if (!res.ok) throw new Error(`Status ${res.status}`);
-        console.log(`Synced update for note ${noteId}`);
       } catch (error) {
         console.error(`Failed to sync update for note ${noteId}:`, error);
       }
     }
-
-    // Clear pending updates after syncing
-    setPendingUpdates(new Map());
   }
 
   async function createBox(screenX: number, screenY: number) {
@@ -162,13 +230,15 @@ function HomeContent() {
     const worldCoords = screenToWorld(screenX, screenY);
     const body = {
       content: "",
-      color: randomColor(),
+      color: nextColor,
       // Center the note around the screen/world point
       position_x: worldCoords.x - NOTE_WIDTH / 2,
       position_y: worldCoords.y - NOTE_HEIGHT / 2,
       user_id: user?.uid ?? null,
       user_name: user?.displayName || user?.email || null,
     };
+    // Queue up a different shade for the note after this one
+    setNextColor(pickRandomColor());
 
     try {
       const res = await fetch("/api/notes", {
@@ -180,11 +250,27 @@ function HomeContent() {
       const data = await res.json();
       const created = data?.note as NoteData | undefined;
       if (created) {
-        setNotes((prev) => [...prev, created]);
+        setNotes((prev) =>
+          prev.some((n) => n.id === created.id) ? prev : [...prev, created]
+        );
       }
     } catch (error) {
       console.error("Error creating note:", error);
+      showToast("Couldn't create note — please try again", "error");
     }
+  }
+
+  async function patchNote(
+    noteId: string,
+    updates: Partial<NoteData>
+  ): Promise<boolean> {
+    const res = await fetch(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...updates }),
+    });
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    return true;
   }
 
   async function updateNoteInDatabase(
@@ -192,29 +278,31 @@ function HomeContent() {
     updates: Partial<NoteData>
   ) {
     try {
-      const res = await fetch(`/api/notes/${noteId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...updates }),
-      });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
+      await patchNote(noteId, updates);
       setNotes((prev) =>
         prev.map((note) =>
           note.id === noteId ? { ...note, ...updates } : note
         )
       );
-    } catch (error) {
-      console.error("Error updating note:", error);
-    }
-  }
-
-  async function deleteNote(noteId: string) {
-    try {
-      const res = await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      setNotes((prev) => prev.filter((note) => note.id !== noteId));
-    } catch (error) {
-      console.error("Error deleting note:", error);
+    } catch {
+      // One retry before telling the user
+      try {
+        await new Promise((r) => setTimeout(r, 1000));
+        await patchNote(noteId, updates);
+        setNotes((prev) =>
+          prev.map((note) =>
+            note.id === noteId ? { ...note, ...updates } : note
+          )
+        );
+      } catch (error) {
+        console.error("Error updating note:", error);
+        showToast("Couldn't save your change — it will be synced later", "error");
+        setPendingUpdates((prev) => {
+          const next = new Map(prev);
+          next.set(noteId, { ...prev.get(noteId), ...updates });
+          return next;
+        });
+      }
     }
   }
 
@@ -417,7 +505,49 @@ function HomeContent() {
   }
 
   function handleNoteDelete(noteId: string) {
-    deleteNote(noteId);
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+
+    // Remove locally right away so the delete feels instant
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    pendingDeleteIdsRef.current.add(noteId);
+
+    const timer = window.setTimeout(() => {
+      finalizeDelete(noteId);
+    }, UNDO_WINDOW_MS);
+    pendingDeletesRef.current.set(noteId, { note, timer });
+
+    showToast("Note deleted", "info", UNDO_WINDOW_MS, {
+      label: "Undo",
+      onClick: () => undoDelete(noteId),
+    });
+  }
+
+  function undoDelete(noteId: string) {
+    const entry = pendingDeletesRef.current.get(noteId);
+    if (!entry) return; // already finalized
+    window.clearTimeout(entry.timer);
+    pendingDeletesRef.current.delete(noteId);
+    pendingDeleteIdsRef.current.delete(noteId);
+    // Realtime feed will re-deliver it; add optimistically too
+    setNotes((prev) =>
+      prev.some((n) => n.id === noteId)
+        ? prev
+        : [...prev, entry.note].sort(
+            (a, b) =>
+              (a.created_at ? Date.parse(a.created_at) : 0) -
+              (b.created_at ? Date.parse(b.created_at) : 0)
+          )
+    );
+  }
+
+  function finalizeDelete(noteId: string) {
+    pendingDeletesRef.current.delete(noteId);
+    pendingDeleteIdsRef.current.delete(noteId);
+    fetch(`/api/notes/${noteId}`, { method: "DELETE" }).catch((error) => {
+      console.error("Error deleting note:", error);
+      showToast("Failed to delete note on server", "error");
+    });
   }
 
   function handleColorChange(noteId: string, newColor: string) {
@@ -542,6 +672,10 @@ function HomeContent() {
   }
 
   function handleCanvasPointerDown(e: React.PointerEvent) {
+    // Clicking empty board ends any active note edit (like pressing Esc)
+    if (editingNote) {
+      setEditingNote(null);
+    }
     // Mouse/pen: left or middle button pans
     const isMouseOrPen = e.pointerType === "mouse" || e.pointerType === "pen";
     const shouldPanMouse = isMouseOrPen && (e.button === 0 || e.button === 1);
@@ -693,8 +827,12 @@ function HomeContent() {
             (a.created_at ? Date.parse(a.created_at) : 0) -
             (b.created_at ? Date.parse(b.created_at) : 0)
         );
-        setNotes(ensureUniqueNotes(updated));
-        if (pendingUpdates.size > 0) {
+        setNotes(
+          ensureUniqueNotes(updated).filter(
+            (n) => !pendingDeleteIdsRef.current.has(n.id)
+          )
+        );
+        if (pendingUpdatesRef.current.size > 0) {
           syncPendingUpdates();
         }
       },
@@ -743,7 +881,6 @@ function HomeContent() {
       {/* Floating controls - Top Left and Right */}
       <div
         className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
-        style={{ transform: "scale(1)", transformOrigin: "top left" }}
       >
         <button
           onClick={() => {
@@ -756,8 +893,11 @@ function HomeContent() {
           }}
           className="group flex items-center gap-2.5 px-5 py-2.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5"
         >
-          <div className="p-1 bg-blue-500 rounded-lg shadow-sm group-hover:scale-102 transition-transform duration-300">
-            <PlusIcon className="w-4 h-4 text-white" />
+          <div
+            className="p-1 rounded-lg shadow-sm transition-colors duration-300 group-hover:scale-102"
+            style={{ backgroundColor: NOTE_COLORS[nextColor].bg }}
+          >
+            <PlusIcon className="w-4 h-4 text-gray-800/70" />
           </div>
           <span className="hidden sm:inline">Create Note</span>
         </button>
@@ -767,6 +907,11 @@ function HomeContent() {
       {/* Centered Zoom Controls */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 prevent-zoom">
         <ZoomControls notes={notes} />
+      </div>
+
+      {/* Minimap for navigating distant notes */}
+      <div className="absolute bottom-4 left-4 z-50 prevent-zoom">
+        <MiniMap notes={notes} />
       </div>
 
       {/* Toasts - Absolute positioned, themed */}
@@ -781,17 +926,36 @@ function HomeContent() {
               ${t.type === "error" ? "bg-rose-50/95 border-rose-200" : ""}
             `}
           >
-            <div className={`w-5 h-5 flex items-center justify-center
-              ${t.type === "success" ? "text-emerald-500" : ""}
-              ${t.type === "info" ? "text-sky-500" : ""}
-              ${t.type === "warning" ? "text-amber-500" : ""}
-              ${t.type === "error" ? "text-rose-500" : ""}
-            `}>
-              <AlertTriangle className="w-5 h-5" />
+            <div
+              className={`w-5 h-5 flex items-center justify-center
+                ${t.type === "success" ? "text-emerald-500" : ""}
+                ${t.type === "info" ? "text-sky-500" : ""}
+                ${t.type === "warning" ? "text-amber-500" : ""}
+                ${t.type === "error" ? "text-rose-500" : ""}
+              `}
+            >
+              {t.type === "success" ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : t.type === "info" ? (
+                <Info className="w-5 h-5" />
+              ) : (
+                <AlertTriangle className="w-5 h-5" />
+              )}
             </div>
             <span className="text-sm font-medium text-gray-700">
               {t.message}
             </span>
+            {t.action && (
+              <button
+                onClick={() => {
+                  t.action?.onClick();
+                  dismissToast(t.id);
+                }}
+                className="ml-1 px-2 py-0.5 rounded-lg bg-white/80 border border-gray-300 text-xs font-semibold text-gray-800 hover:bg-white transition-colors"
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>
