@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { UserIcon, LogIn, LogOut, X } from "lucide-react";
+import { UserIcon, LogOut, X } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   type User,
 } from "firebase/auth";
 import {
@@ -25,6 +27,42 @@ import {
 interface UserProfilesProps {
   className?: string;
   isConnected?: boolean;
+}
+
+// Firebase returns raw strings like "Firebase: Error (auth/invalid-credential)".
+// Translate the common cases into something a human can act on.
+function firebaseAuthErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code)
+      : "";
+
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Wrong email or password.";
+    case "auth/email-already-in-use":
+      return "That email already has an account — try signing in instead.";
+    case "auth/invalid-email":
+      return "That doesn't look like a valid email address.";
+    case "auth/missing-email":
+      return "Please enter your email address first.";
+    case "auth/missing-password":
+      return "Please enter your password.";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters.";
+    case "auth/too-many-requests":
+      return "Too many attempts — please wait a moment and try again.";
+    case "auth/network-request-failed":
+      return "Network problem. Check your connection and try again.";
+    case "auth/popup-closed-by-user":
+      return "Google sign-in was cancelled.";
+    case "auth/popup-blocked":
+      return "Your browser blocked the sign-in window — allow popups and retry.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
 }
 
 function GoogleIcon() {
@@ -81,6 +119,8 @@ export default function UserProfiles({
 
   // Auth modes and inputs
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
 
   // Ensure we have a stable anonymous session identifier for presence
   useEffect(() => {
@@ -233,9 +273,30 @@ export default function UserProfiles({
       setEmail("");
       setPassword("");
     } catch (error: unknown) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Authentication failed"
-      );
+      setErrorMessage(firebaseAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    try {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      if (!email) {
+        setErrorMessage("Please enter your email address first.");
+        return;
+      }
+      await sendPasswordResetEmail(auth, email, {
+        url:
+          typeof window !== "undefined"
+            ? window.location.origin
+            : "https://live-update-notes.netlify.app",
+      });
+      setResetSentTo(email);
+      setPassword("");
+    } catch (error: unknown) {
+      setErrorMessage(firebaseAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -248,9 +309,26 @@ export default function UserProfiles({
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "Google sign-in failed"
-      );
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      // Popups get blocked or fail in embedded browsers; fall back to a
+      // full-page redirect, which survives those environments.
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request" ||
+        code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+          return;
+        } catch {
+          // fall through to the friendly error
+        }
+      }
+      setErrorMessage(firebaseAuthErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -469,30 +547,16 @@ export default function UserProfiles({
               </button>
             </div>
           ) : (
-            <>
-              <span className="text-sm font-medium text-gray-700">
-                Guest
-              </span>
-              <button
-                onClick={() => setShowAuthForm((s) => !s)}
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors duration-200"
-                title="Sign in"
-              >
-                <div className="flex items-center gap-2">
-                  {showAuthForm ? (
-                    <>
-                      <X className="w-4 h-4 -mr-1" />
-                      <span className="pr-3">Close</span>
-                    </>
-                  ) : (
-                    <>
-                      <LogIn className="w-4 h-4" />
-                      <span>Sign In</span>
-                    </>
-                  )}
-                </div>
-              </button>
-            </>
+            <button
+              onClick={() => setShowAuthForm((s) => !s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${
+                showAuthForm
+                  ? "bg-gray-100 text-gray-500"
+                  : "text-gray-800 hover:bg-gray-100"
+              }`}
+            >
+              Sign in
+            </button>
           )}
         </div>
       </div>
@@ -500,6 +564,18 @@ export default function UserProfiles({
       {/* Auth popover */}
       {!user && showAuthForm && (
         <div className="absolute top-14 right-0 w-80 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-5 z-50 animate-scale-in">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-semibold text-gray-900">
+              {authMode === "login" ? "Welcome back" : "Join the board"}
+            </span>
+            <button
+              onClick={() => setShowAuthForm(false)}
+              className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
           <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1">
             <button
               onClick={() => setAuthMode("login")}
@@ -515,44 +591,120 @@ export default function UserProfiles({
             </button>
           </div>
           <div className="flex flex-col gap-2">
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            {errorMessage && (
-              <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
+            {showForgotPassword ? (
+              resetSentTo ? (
+                <div className="text-sm text-gray-700 space-y-3 py-2">
+                  <p>
+                    If an account exists for{" "}
+                    <span className="font-semibold">{resetSentTo}</span>, a
+                    reset link is on its way. Check your inbox (and spam).
+                  </p>
+                  <button
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setResetSentTo(null);
+                    }}
+                    className="text-sm font-semibold text-gray-800 hover:underline"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Enter your email and we&apos;ll send you a reset link.
+                  </p>
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                  {errorMessage && (
+                    <div className="text-xs text-red-600 mt-1">
+                      {errorMessage}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleForgotPassword}
+                    disabled={isSubmitting}
+                    className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
+                  >
+                    Send reset link
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setErrorMessage(null);
+                    }}
+                    className="text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Back to sign in
+                  </button>
+                </>
+              )
+            ) : (
+              <>
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitAuth();
+                  }}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                {errorMessage && (
+                  <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
+                )}
+                <button
+                  onClick={submitAuth}
+                  disabled={isSubmitting}
+                  className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
+                >
+                  {authMode === "login" ? "Log In" : "Create Account"}
+                </button>
+                {authMode === "login" && (
+                  <button
+                    onClick={() => {
+                      setShowForgotPassword(true);
+                      setErrorMessage(null);
+                      setResetSentTo(null);
+                    }}
+                    className="self-start text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </>
             )}
-            <button
-              onClick={submitAuth}
-              disabled={isSubmitting}
-              className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
-            >
-              {authMode === "login" ? "Log In" : "Create Account"}
-            </button>
-            <div className="relative my-2">
-              <div className="w-full h-px bg-gray-200" />
-              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
-                or
-              </div>
-            </div>
-            <button
-              onClick={signInWithGoogle}
-              disabled={isSubmitting}
-              className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <GoogleIcon />
-              <span>Continue with Google</span>
-            </button>
+            {!showForgotPassword && (
+              <>
+                <div className="relative my-2">
+                  <div className="w-full h-px bg-gray-200" />
+                  <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
+                    or
+                  </div>
+                </div>
+                <button
+                  onClick={signInWithGoogle}
+                  disabled={isSubmitting}
+                  className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <GoogleIcon />
+                  <span>Continue with Google</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
