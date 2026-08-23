@@ -6,6 +6,7 @@ import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
@@ -97,6 +98,7 @@ export default function UserProfiles({
   isConnected = false,
 }: UserProfilesProps) {
   const [user, setUser] = useState<User | null>(null);
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<
     {
@@ -161,6 +163,7 @@ export default function UserProfiles({
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      setIsEmailVerified(currentUser ? currentUser.emailVerified : null);
       if (currentUser) {
         setShowAuthForm(false);
         if (sessionId) {
@@ -266,7 +269,14 @@ export default function UserProfiles({
         return;
       }
       if (authMode === "signup") {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        // Fire-and-forget: signup shouldn't fail if the mail server hiccups
+        sendEmailVerification(cred.user, {
+          url:
+            typeof window !== "undefined"
+              ? window.location.origin
+              : "https://live-update-notes.netlify.app",
+        }).catch(() => {});
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -529,6 +539,13 @@ export default function UserProfiles({
                   : '0 0 8px rgba(244, 63, 94, 0.5)'
               }}
             ></div>
+            {/* Unverified email marker — only visible to yourself */}
+            {user && isEmailVerified === false && (
+              <div
+                className="absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border border-white"
+                title="Email not verified — check your inbox for the verification link"
+              />
+            )}
           </div>
 
           {/* User name or sign in */}

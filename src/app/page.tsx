@@ -959,6 +959,17 @@ function HomeContent() {
           </div>
         ))}
       </div>
+
+      {/* Wordmark + purpose — also satisfies Google OAuth branding checks */}
+      <div className="fixed bottom-1 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">
+        <span className="text-xs font-semibold text-gray-500">
+          Live Notes
+        </span>
+        <span className="hidden sm:inline text-[11px] text-gray-400">
+          {" "}
+          · a real-time shared sticky-note board
+        </span>
+      </div>
     </div>
   );
 }

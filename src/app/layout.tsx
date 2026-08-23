@@ -16,6 +16,9 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
+  verification: {
+    google: "Z07Zcxdk0erWKqoGySH-CCUrMCNMeyP4uNOQbDo17tI",
+  },
   applicationName: "Live Notes",
   title: {
     default: "Live Notes",
