@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isReservedNoteId, normalizeNoteRecord } from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,8 +35,12 @@ function buildDbUrl(path: string): string {
 
 export async function GET(_req: Request, context: unknown) {
   try {
-    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const params = await (context as { params: Promise<{ id: string }> })
+      .params;
     const { id } = params;
+    if (isReservedNoteId(id)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "GET",
       cache: "no-store",
@@ -46,23 +51,11 @@ export async function GET(_req: Request, context: unknown) {
     if (!res.ok) {
       throw new Error(`RTDB GET failed with status ${res.status}`);
     }
-    const d = ((await res.json()) || {}) as Partial<NoteRecord>;
-    const createdIso = toIsoStringFromMaybeNumber(d.created_at);
-    const editedIso = toIsoStringFromMaybeNumber(d.edited_at);
-    return NextResponse.json({
-      note: {
-        id,
-        content: d.content ?? "",
-        color: d.color ?? "blue",
-        position_x: d.position_x ?? 0,
-        position_y: d.position_y ?? 0,
-        user_id: d.user_id ?? undefined,
-        user_name: d.user_name ?? undefined,
-        created_at: createdIso,
-        edited_at: editedIso ?? createdIso,
-        stars: d.stars ?? undefined,
-      },
-    });
+    const note = normalizeNoteRecord(id, await res.json());
+    if (!note) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ note });
   } catch (error: unknown) {
     return NextResponse.json(
       {
@@ -74,7 +67,7 @@ export async function GET(_req: Request, context: unknown) {
               ? error
               : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -106,14 +99,18 @@ export async function PATCH(req: Request, context: unknown) {
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
         { error: "No valid fields to update" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     updates.edited_at = { ".sv": "timestamp" };
 
-    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const params = await (context as { params: Promise<{ id: string }> })
+      .params;
     const { id } = params;
+    if (isReservedNoteId(id)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const patchRes = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -130,7 +127,7 @@ export async function PATCH(req: Request, context: unknown) {
     });
     if (!readRes.ok) {
       throw new Error(
-        `RTDB GET after PATCH failed with status ${readRes.status}`
+        `RTDB GET after PATCH failed with status ${readRes.status}`,
       );
     }
     const d = ((await readRes.json()) || {}) as Partial<NoteRecord>;
@@ -163,7 +160,7 @@ export async function PATCH(req: Request, context: unknown) {
               ? error
               : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -172,8 +169,12 @@ export const PUT = PATCH;
 
 export async function DELETE(_req: Request, context: unknown) {
   try {
-    const params = await (context as { params: Promise<{ id: string }> }).params;
+    const params = await (context as { params: Promise<{ id: string }> })
+      .params;
     const { id } = params;
+    if (isReservedNoteId(id)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
       method: "DELETE",
     });
@@ -192,7 +193,7 @@ export async function DELETE(_req: Request, context: unknown) {
               ? error
               : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,6 +1,16 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from "react";
 import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
-import { NOTE_COLORS, NOTE_COLOR_NAMES, type NoteColorName } from "@/lib/noteColors";
+import {
+  NOTE_COLORS,
+  NOTE_COLOR_NAMES,
+  type NoteColorName,
+} from "@/lib/noteColors";
 
 export interface NoteProps {
   id: string;
@@ -127,7 +137,7 @@ const Note: React.FC<NoteProps> = ({
         onContentChange?.(id, newContent);
       }, 1000);
     },
-    [id, onContentChange]
+    [id, onContentChange],
   );
 
   const formatDate = (dateString?: string) => {
@@ -153,7 +163,7 @@ const Note: React.FC<NoteProps> = ({
 
   const cycleToNextColor = () => {
     const currentIndex = NOTE_COLOR_NAMES.indexOf(
-      ((color || "blue") as NoteColorName)
+      (color || "blue") as NoteColorName,
     );
     const nextIndex = (currentIndex + 1) % NOTE_COLOR_NAMES.length;
     onColorChange?.(id, NOTE_COLOR_NAMES[nextIndex]);
@@ -163,7 +173,8 @@ const Note: React.FC<NoteProps> = ({
   // rather than machine-aligned. Same id always gets the same angle.
   const tiltDeg = useMemo(() => {
     let hash = 0;
-    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+    for (let i = 0; i < id.length; i++)
+      hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
     return ((hash % 9) - 4) * 0.5; // -2deg .. +2deg
   }, [id]);
 
@@ -212,7 +223,7 @@ const Note: React.FC<NoteProps> = ({
   };
 
   const handleContentKeyDown = (
-    e: React.KeyboardEvent<HTMLParagraphElement>
+    e: React.KeyboardEvent<HTMLParagraphElement>,
   ) => {
     if (!isEditing && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();
@@ -249,6 +260,7 @@ const Note: React.FC<NoteProps> = ({
         transform: isHovered
           ? "rotate(0deg) translateY(-2px)"
           : `rotate(${tiltDeg}deg)`,
+        willChange: isHovered ? "transform" : undefined,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -260,19 +272,23 @@ const Note: React.FC<NoteProps> = ({
         style={{
           backgroundColor: "rgba(233, 220, 180, 0.75)",
           borderRadius: "2px",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.12), inset 0 0 4px rgba(255,255,255,0.5)",
+          boxShadow:
+            "0 1px 2px rgba(0,0,0,0.12), inset 0 0 4px rgba(255,255,255,0.5)",
         }}
       />
 
       {/* Star button + count (Top-left) */}
-      <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+      <div className="absolute top-2 left-2 pointer-fine:top-3 pointer-fine:left-3 flex items-center gap-1.5 z-10">
         <button
           onClick={handleToggleStar}
-          className={`p-1.5 rounded-xl shadow-sm border transition-all duration-200 hover:scale-110 hover:shadow-md ${isStarred
-            ? "bg-amber-50 border-amber-300"
-            : "bg-white/90 hover:bg-white border-gray-200/80"
-            }`}
+          className={`min-w-11 min-h-11 pointer-fine:min-w-0 pointer-fine:min-h-0 p-2.5 pointer-fine:p-1.5 flex items-center justify-center rounded-xl shadow-sm border transition-all duration-200 hover:scale-110 hover:shadow-md focus-visible:outline-2 focus-visible:outline-indigo-500 ${
+            isStarred
+              ? "bg-amber-50 border-amber-300"
+              : "bg-white/90 hover:bg-white border-gray-200/80"
+          }`}
           title={isStarred ? "Unstar note" : "Star note"}
+          aria-label={isStarred ? "Unstar note" : "Star note"}
+          aria-pressed={isStarred}
         >
           <Star
             size={15}
@@ -289,8 +305,8 @@ const Note: React.FC<NoteProps> = ({
       {/* Action Buttons */}
       <div
         className={`
-          absolute top-3 right-3 flex gap-1.5 transition-all duration-200
-          ${isHovered ? "opacity-100 translate-y-0" : "opacity-100 md:opacity-0 md:-translate-y-1"}
+          absolute top-2 right-2 pointer-fine:top-3 pointer-fine:right-3 flex gap-1.5 transition-all duration-200
+          ${isHovered ? "opacity-100 translate-y-0" : "opacity-100 pointer-fine:opacity-0 pointer-fine:-translate-y-1"}
         `}
       >
         <button
@@ -298,15 +314,17 @@ const Note: React.FC<NoteProps> = ({
             e.stopPropagation();
             handleColorChange();
           }}
-          className="p-1.5 bg-white/90 hover:bg-white rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md z-10"
+          className="min-w-11 min-h-11 pointer-fine:min-w-0 pointer-fine:min-h-0 p-2.5 pointer-fine:p-1.5 flex items-center justify-center bg-white/90 hover:bg-white rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md focus-visible:outline-2 focus-visible:outline-indigo-500 z-10"
           title="Change color"
+          aria-label="Change note color"
         >
           <Paintbrush size={15} className="text-gray-500" />
         </button>
         <button
           onClick={handleEdit}
-          className="p-1.5 bg-white/90 hover:bg-white rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md z-10"
+          className="min-w-11 min-h-11 pointer-fine:min-w-0 pointer-fine:min-h-0 p-2.5 pointer-fine:p-1.5 flex items-center justify-center bg-white/90 hover:bg-white rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md focus-visible:outline-2 focus-visible:outline-indigo-500 z-10"
           title="Edit note"
+          aria-label="Edit note"
         >
           <PencilIcon size={15} className="text-gray-500" />
         </button>
@@ -315,15 +333,16 @@ const Note: React.FC<NoteProps> = ({
             e.stopPropagation();
             handleDelete();
           }}
-          className="p-1.5 bg-white/90 hover:bg-rose-50 rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md hover:border-rose-200 z-10"
+          className="min-w-11 min-h-11 pointer-fine:min-w-0 pointer-fine:min-h-0 p-2.5 pointer-fine:p-1.5 flex items-center justify-center bg-white/90 hover:bg-rose-50 rounded-xl shadow-sm border border-gray-200/80 transition-all duration-200 hover:scale-110 hover:shadow-md hover:border-rose-200 focus-visible:outline-2 focus-visible:outline-rose-500 z-10"
           title="Delete note"
+          aria-label="Delete note"
         >
           <TrashIcon size={15} className="text-rose-400 hover:text-rose-500" />
         </button>
       </div>
 
       {/* Note Content */}
-      <div className="mt-10 mb-14">
+      <div className="mt-14 pointer-fine:mt-10 mb-14">
         {isEditing ? (
           <div className="space-y-2">
             <textarea
@@ -332,7 +351,7 @@ const Note: React.FC<NoteProps> = ({
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
-              className="w-full h-28 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-sm placeholder:text-gray-500 transition-all duration-200"
+              className="w-full h-28 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-base pointer-fine:text-sm placeholder:text-gray-500 transition-all duration-200"
               placeholder="Type your note here..."
             />
             <div className="text-[11px] text-gray-400 font-medium">
@@ -350,7 +369,9 @@ const Note: React.FC<NoteProps> = ({
             onKeyDown={handleContentKeyDown}
           >
             {localContent || (
-              <span className="text-gray-500 italic">Click to add content...</span>
+              <span className="text-gray-500 italic">
+                Click to add content...
+              </span>
             )}
           </p>
         )}

@@ -3,18 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { ref, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
-import { NoteProps } from "@/components/Note";
 import UserProfiles from "@/components/UserProfiles";
 import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
 import MiniMap from "@/components/MiniMap";
-import {
-  PlusIcon,
-  AlertTriangle,
-  CheckCircle,
-  Info,
-} from "lucide-react";
+import { PlusIcon, AlertTriangle, CheckCircle, Info } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
@@ -22,19 +16,17 @@ import {
   NOTE_COLOR_NAMES,
   type NoteColorName,
 } from "@/lib/noteColors";
-
-interface NoteData {
-  id: string;
-  content: string;
-  color: string;
-  position_x: number;
-  position_y: number;
-  created_at?: string;
-  user_id?: string;
-  user_name?: string;
-  edited_at?: string;
-  stars?: Record<string, boolean>;
-}
+import { normalizeNotesCollection, type NoteData } from "@/lib/notes";
+import {
+  calculatePinchTransform,
+  CANVAS_NOTE_HEIGHT,
+  CANVAS_NOTE_WIDTH,
+  distanceBetween,
+  MAX_CANVAS_ZOOM,
+  midpointBetween,
+  MIN_CANVAS_ZOOM,
+  type CanvasPoint,
+} from "@/lib/canvas-geometry";
 
 type ToastAction = {
   label: string;
@@ -51,36 +43,62 @@ type ToastItem = {
 function HomeContent() {
   const [notes, setNotes] = useState<NoteData[]>([]);
   const [isDragging, setIsDragging] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 20, y: 20 });
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
   const [, setLastActivity] = useState(Date.now());
   const [pendingUpdates, setPendingUpdates] = useState<
     Map<string, Partial<NoteData>>
   >(new Map());
   const pendingUpdatesRef = useRef(pendingUpdates);
+  const isSyncingPendingUpdatesRef = useRef(false);
+  const pendingRetryTimerRef = useRef<number | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const lastPanPointRef = useRef({ x: 0, y: 0 });
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const [touchStartDistance, setTouchStartDistance] = useState(0);
-  const [touchStartZoom, setTouchStartZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { zoom, panX, panY, setPan, setZoom, screenToWorld } = useZoom();
+  const { zoom, panX, panY, setPan, setZoom } = useZoom();
   const [user, setUser] = useState<User | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const isCreatingRef = useRef(false);
   const panRafRef = useRef<number | null>(null);
   const dragRafRef = useRef<number | null>(null);
   const pinchRafRef = useRef<number | null>(null);
   const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
-  const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingDragRef = useRef<{
+    noteId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const pendingPinchRef = useRef<{
     zoom: number;
-    mouseX: number;
-    mouseY: number;
+    pan: CanvasPoint;
   } | null>(null);
   const activePanPointerIdRef = useRef<number | null>(null);
   const activeDragPointerIdRef = useRef<number | null>(null);
+  const panCaptureTargetRef = useRef<Element | null>(null);
+  const dragCaptureTargetRef = useRef<Element | null>(null);
+  const isPanningRef = useRef(false);
+  const isDraggingRef = useRef<string | null>(null);
+  const dragOffsetRef = useRef<CanvasPoint>({ x: 20, y: 20 });
+  const dragStartPositionRef = useRef<{
+    noteId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const latestDragPositionRef = useRef<{
+    noteId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const activeTouchPointersRef = useRef<Map<number, CanvasPoint>>(new Map());
+  const pinchGestureRef = useRef<{
+    pointerIds: [number, number];
+    startDistance: number;
+    startZoom: number;
+    startPan: CanvasPoint;
+    startCenter: CanvasPoint;
+  } | null>(null);
+  const suppressTouchUntilReleaseRef = useRef(false);
   const panStateRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomStateRef = useRef<number>(1);
 
@@ -88,9 +106,9 @@ function HomeContent() {
   // realtime updates for them must be filtered out until it expires.
   const UNDO_WINDOW_MS = 6000;
   const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
-  const pendingDeletesRef = useRef<Map<string, { note: NoteData; timer: number }>>(
-    new Map()
-  );
+  const pendingDeletesRef = useRef<
+    Map<string, { note: NoteData; timer: number }>
+  >(new Map());
 
   useEffect(() => {
     panStateRef.current = { x: panX, y: panY };
@@ -126,7 +144,7 @@ function HomeContent() {
       } else {
         window.localStorage.setItem(
           PENDING_UPDATES_KEY,
-          JSON.stringify(Array.from(pendingUpdates.entries()))
+          JSON.stringify(Array.from(pendingUpdates.entries())),
         );
       }
     } catch {
@@ -136,7 +154,13 @@ function HomeContent() {
 
   // Retry the offline queue when connectivity returns
   useEffect(() => {
-    const handleOnline = () => syncPendingUpdates();
+    const handleOnline = () => {
+      if (pendingRetryTimerRef.current !== null) {
+        window.clearTimeout(pendingRetryTimerRef.current);
+        pendingRetryTimerRef.current = null;
+      }
+      void syncPendingUpdates();
+    };
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,7 +170,7 @@ function HomeContent() {
     message: string,
     type: "info" | "success" | "warning" | "error" = "info",
     durationMs = 2500,
-    action?: ToastAction
+    action?: ToastAction,
   ) {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts((prev) => [...prev, { id, message, type, action }]);
@@ -166,17 +190,6 @@ function HomeContent() {
     return () => unsubscribe();
   }, []);
 
-  // Helper function to ensure unique notes by ID
-  const ensureUniqueNotes = (notesArray: NoteData[]): NoteData[] => {
-    const uniqueMap = new Map<string, NoteData>();
-    notesArray.forEach((note) => {
-      if (!uniqueMap.has(note.id)) {
-        uniqueMap.set(note.id, note);
-      }
-    });
-    return Array.from(uniqueMap.values());
-  };
-
   function pickRandomColor(): NoteColorName {
     return NOTE_COLOR_NAMES[
       Math.floor(Math.random() * NOTE_COLOR_NAMES.length)
@@ -186,54 +199,83 @@ function HomeContent() {
   // The plus chip previews the color the next note will get
   const [nextColor, setNextColor] = useState<NoteColorName>(pickRandomColor);
 
-  // Note dimensions (should match `w-80` and `min-h-56` from `Note.tsx`)
-  const NOTE_WIDTH = 320;
-  const NOTE_HEIGHT = 224;
+  function replacePendingUpdates(next: Map<string, Partial<NoteData>>) {
+    pendingUpdatesRef.current = next;
+    setPendingUpdates(next);
+  }
 
-  async function loadNotes() {
-    try {
-      const res = await fetch("/api/notes", { method: "GET" });
-      if (!res.ok) throw new Error(`Failed to load notes: ${res.status}`);
-      const data = await res.json();
-      const loaded: NoteData[] = Array.isArray(data?.notes) ? data.notes : [];
-      const uniqueNotes = ensureUniqueNotes(loaded).filter(
-        (n) => !pendingDeleteIdsRef.current.has(n.id)
-      );
-      setNotes(uniqueNotes);
-    } catch (error) {
-      console.error("Error loading notes:", error);
+  function queuePendingUpdate(noteId: string, updates: Partial<NoteData>) {
+    const queuedUpdate = {
+      ...pendingUpdatesRef.current.get(noteId),
+      ...updates,
+    };
+    const next = new Map(pendingUpdatesRef.current);
+    next.set(noteId, queuedUpdate);
+    replacePendingUpdates(next);
+    return queuedUpdate;
+  }
+
+  function clearPendingUpdate(noteId: string, expected: Partial<NoteData>) {
+    if (pendingUpdatesRef.current.get(noteId) !== expected) return;
+    const next = new Map(pendingUpdatesRef.current);
+    next.delete(noteId);
+    replacePendingUpdates(next);
+  }
+
+  function schedulePendingRetry() {
+    if (
+      !navigator.onLine ||
+      pendingUpdatesRef.current.size === 0 ||
+      pendingRetryTimerRef.current !== null
+    ) {
+      return;
     }
+    pendingRetryTimerRef.current = window.setTimeout(() => {
+      pendingRetryTimerRef.current = null;
+      void syncPendingUpdates();
+    }, 5_000);
   }
 
   async function syncPendingUpdates() {
-    const queue = pendingUpdatesRef.current;
-    if (queue.size === 0) return;
+    if (
+      isSyncingPendingUpdatesRef.current ||
+      pendingUpdatesRef.current.size === 0
+    ) {
+      return;
+    }
 
-    for (const [noteId, updates] of queue.entries()) {
-      try {
-        await patchNote(noteId, updates);
-        // Remove only successfully synced entries so failures are retried
-        setPendingUpdates((prev) => {
-          if (!prev.has(noteId)) return prev;
-          const next = new Map(prev);
-          next.delete(noteId);
-          return next;
-        });
-      } catch (error) {
-        console.error(`Failed to sync update for note ${noteId}:`, error);
+    isSyncingPendingUpdatesRef.current = true;
+    const queuedUpdates = [...pendingUpdatesRef.current.entries()];
+    try {
+      for (const [noteId, updates] of queuedUpdates) {
+        try {
+          await patchNote(noteId, updates);
+          clearPendingUpdate(noteId, updates);
+        } catch (error) {
+          console.error(`Failed to sync update for note ${noteId}:`, error);
+        }
       }
+    } finally {
+      isSyncingPendingUpdatesRef.current = false;
+      schedulePendingRetry();
     }
   }
 
   async function createBox(screenX: number, screenY: number) {
-    // Convert screen coordinates to world coordinates
-    const worldCoords = screenToWorld(screenX, screenY);
+    if (isCreatingRef.current) return;
+    isCreatingRef.current = true;
+    setIsCreating(true);
+
+    const worldCoords = {
+      x: (screenX - panStateRef.current.x) / zoomStateRef.current,
+      y: (screenY - panStateRef.current.y) / zoomStateRef.current,
+    };
     const body = {
       content: "",
       color: nextColor,
       // Center the note around the screen/world point
-      position_x: worldCoords.x - NOTE_WIDTH / 2,
-      position_y: worldCoords.y - NOTE_HEIGHT / 2,
+      position_x: worldCoords.x - CANVAS_NOTE_WIDTH / 2,
+      position_y: worldCoords.y - CANVAS_NOTE_HEIGHT / 2,
       user_id: user?.uid ?? null,
       user_name: user?.displayName || user?.email || null,
     };
@@ -251,18 +293,21 @@ function HomeContent() {
       const created = data?.note as NoteData | undefined;
       if (created) {
         setNotes((prev) =>
-          prev.some((n) => n.id === created.id) ? prev : [...prev, created]
+          prev.some((n) => n.id === created.id) ? prev : [...prev, created],
         );
       }
     } catch (error) {
       console.error("Error creating note:", error);
       showToast("Couldn't create note — please try again", "error");
+    } finally {
+      isCreatingRef.current = false;
+      setIsCreating(false);
     }
   }
 
   async function patchNote(
     noteId: string,
-    updates: Partial<NoteData>
+    updates: Partial<NoteData>,
   ): Promise<boolean> {
     const res = await fetch(`/api/notes/${noteId}`, {
       method: "PATCH",
@@ -275,34 +320,22 @@ function HomeContent() {
 
   async function updateNoteInDatabase(
     noteId: string,
-    updates: Partial<NoteData>
+    updates: Partial<NoteData>,
   ) {
+    const queuedUpdate = queuePendingUpdate(noteId, updates);
+
     try {
-      await patchNote(noteId, updates);
+      await patchNote(noteId, queuedUpdate);
+      clearPendingUpdate(noteId, queuedUpdate);
       setNotes((prev) =>
         prev.map((note) =>
-          note.id === noteId ? { ...note, ...updates } : note
-        )
+          note.id === noteId ? { ...note, ...queuedUpdate } : note,
+        ),
       );
-    } catch {
-      // One retry before telling the user
-      try {
-        await new Promise((r) => setTimeout(r, 1000));
-        await patchNote(noteId, updates);
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === noteId ? { ...note, ...updates } : note
-          )
-        );
-      } catch (error) {
-        console.error("Error updating note:", error);
-        showToast("Couldn't save your change — it will be synced later", "error");
-        setPendingUpdates((prev) => {
-          const next = new Map(prev);
-          next.set(noteId, { ...prev.get(noteId), ...updates });
-          return next;
-        });
-      }
+    } catch (error) {
+      console.error("Error updating note:", error);
+      showToast("Couldn't save your change — it will be synced later", "error");
+      schedulePendingRetry();
     }
   }
 
@@ -326,7 +359,7 @@ function HomeContent() {
           nextStars[uid] = true;
         }
         return { ...n, stars: nextStars };
-      })
+      }),
     );
 
     try {
@@ -339,157 +372,389 @@ function HomeContent() {
     }
   }
 
-  function handlePointerDown(e: React.PointerEvent, noteId: string) {
-    const target = e.target as HTMLElement;
-
-    // Check if clicked on drag handle OR if it's not on an interactive element
-    const isDragHandle = target.closest(".note-drag-handle");
-    const isInteractiveElement = target.closest("button, textarea, input");
-
-    if (isDragHandle || (!isInteractiveElement && e.button === 0)) {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(noteId);
-      activeDragPointerIdRef.current = e.pointerId;
-      try {
-        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-      } catch { }
-
-      // Calculate drag offset in world coordinates for accurate dragging
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const note = notes.find((n) => n.id === noteId);
-        if (note) {
-          const mouseScreenPos = {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-          };
-
-          // Convert mouse position to world coordinates
-          const mouseWorldPos = screenToWorld(
-            mouseScreenPos.x,
-            mouseScreenPos.y
-          );
-
-          // Calculate offset in world coordinates
-          setDragOffset({
-            x: mouseWorldPos.x - note.position_x,
-            y: mouseWorldPos.y - note.position_y,
-          });
-        }
+  function releasePointerCapture(
+    target: Element | null,
+    pointerId: number | null,
+  ) {
+    if (!target || pointerId === null) return;
+    try {
+      if (target.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
       }
+    } catch {}
+  }
+
+  function stopPanning(flushPending = false) {
+    const pending = pendingPanRef.current;
+    if (flushPending && pending) {
+      const nextPan = {
+        x: panStateRef.current.x + pending.x - lastPanPointRef.current.x,
+        y: panStateRef.current.y + pending.y - lastPanPointRef.current.y,
+      };
+      setPan(nextPan.x, nextPan.y);
+      panStateRef.current = nextPan;
+      lastPanPointRef.current = { ...pending };
+    }
+    releasePointerCapture(
+      panCaptureTargetRef.current,
+      activePanPointerIdRef.current,
+    );
+    isPanningRef.current = false;
+    setIsPanning(false);
+    activePanPointerIdRef.current = null;
+    panCaptureTargetRef.current = null;
+    pendingPanRef.current = null;
+    if (panRafRef.current !== null) {
+      cancelAnimationFrame(panRafRef.current);
+      panRafRef.current = null;
     }
   }
 
+  function cancelDragForPinch() {
+    const start = dragStartPositionRef.current;
+    if (start) {
+      setNotes((previous) =>
+        previous.map((note) =>
+          note.id === start.noteId
+            ? { ...note, position_x: start.x, position_y: start.y }
+            : note,
+        ),
+      );
+    }
+
+    releasePointerCapture(
+      dragCaptureTargetRef.current,
+      activeDragPointerIdRef.current,
+    );
+    if (dragRafRef.current !== null) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+    pendingDragRef.current = null;
+    latestDragPositionRef.current = null;
+    dragStartPositionRef.current = null;
+    dragCaptureTargetRef.current = null;
+    activeDragPointerIdRef.current = null;
+    isDraggingRef.current = null;
+    setIsDragging(null);
+  }
+
+  function beginPinchGesture() {
+    const container = containerRef.current;
+    const pointers = [...activeTouchPointersRef.current.entries()].slice(0, 2);
+    if (!container || pointers.length < 2) return;
+
+    stopPanning();
+    cancelDragForPinch();
+    suppressTouchUntilReleaseRef.current = true;
+
+    const rect = container.getBoundingClientRect();
+    const first = {
+      x: pointers[0][1].x - rect.left,
+      y: pointers[0][1].y - rect.top,
+    };
+    const second = {
+      x: pointers[1][1].x - rect.left,
+      y: pointers[1][1].y - rect.top,
+    };
+    const startDistance = distanceBetween(first, second);
+    if (startDistance <= 0) return;
+
+    pinchGestureRef.current = {
+      pointerIds: [pointers[0][0], pointers[1][0]],
+      startDistance,
+      startZoom: zoomStateRef.current,
+      startPan: { ...panStateRef.current },
+      startCenter: midpointBetween(first, second),
+    };
+
+    for (const [pointerId] of pointers) {
+      try {
+        container.setPointerCapture(pointerId);
+      } catch {}
+    }
+  }
+
+  function handlePointerDownCapture(e: React.PointerEvent) {
+    if (e.pointerType !== "touch") return;
+
+    activeTouchPointersRef.current.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY,
+    });
+    if (activeTouchPointersRef.current.size === 2) {
+      e.preventDefault();
+      beginPinchGesture();
+    } else if (activeTouchPointersRef.current.size > 2) {
+      e.preventDefault();
+      suppressTouchUntilReleaseRef.current = true;
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent, noteId: string) {
+    const target = e.target as HTMLElement;
+    const isDragHandle = target.closest(".note-drag-handle");
+    const isInteractiveElement = target.closest("button, textarea, input");
+    const touchIsPinching =
+      e.pointerType === "touch" &&
+      (activeTouchPointersRef.current.size > 1 ||
+        suppressTouchUntilReleaseRef.current);
+
+    if (
+      touchIsPinching ||
+      (!isDragHandle && (isInteractiveElement || e.button !== 0))
+    ) {
+      return;
+    }
+
+    const container = containerRef.current;
+    const note = notes.find((item) => item.id === noteId);
+    if (!container || !note) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = container.getBoundingClientRect();
+    const screenPosition = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+    const worldPosition = {
+      x: (screenPosition.x - panStateRef.current.x) / zoomStateRef.current,
+      y: (screenPosition.y - panStateRef.current.y) / zoomStateRef.current,
+    };
+
+    dragOffsetRef.current = {
+      x: worldPosition.x - note.position_x,
+      y: worldPosition.y - note.position_y,
+    };
+    dragStartPositionRef.current = {
+      noteId,
+      x: note.position_x,
+      y: note.position_y,
+    };
+    latestDragPositionRef.current = {
+      noteId,
+      x: note.position_x,
+      y: note.position_y,
+    };
+    isDraggingRef.current = noteId;
+    setIsDragging(noteId);
+    activeDragPointerIdRef.current = e.pointerId;
+    dragCaptureTargetRef.current = container;
+    try {
+      container.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function applyPendingPinch() {
+    const pending = pendingPinchRef.current;
+    if (pending) {
+      setZoom(pending.zoom);
+      setPan(pending.pan.x, pending.pan.y);
+      zoomStateRef.current = pending.zoom;
+      panStateRef.current = { ...pending.pan };
+      pendingPinchRef.current = null;
+    }
+    pinchRafRef.current = null;
+  }
+
   function handlePointerMove(e: React.PointerEvent) {
-    if (isPanning && e.pointerId === activePanPointerIdRef.current) {
+    if (
+      e.pointerType === "touch" &&
+      activeTouchPointersRef.current.has(e.pointerId)
+    ) {
+      activeTouchPointersRef.current.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+      });
+
+      const pinch = pinchGestureRef.current;
+      if (pinch) {
+        const firstPointer = activeTouchPointersRef.current.get(
+          pinch.pointerIds[0],
+        );
+        const secondPointer = activeTouchPointersRef.current.get(
+          pinch.pointerIds[1],
+        );
+        const container = containerRef.current;
+        if (firstPointer && secondPointer && container) {
+          e.preventDefault();
+          const rect = container.getBoundingClientRect();
+          const first = {
+            x: firstPointer.x - rect.left,
+            y: firstPointer.y - rect.top,
+          };
+          const second = {
+            x: secondPointer.x - rect.left,
+            y: secondPointer.y - rect.top,
+          };
+          pendingPinchRef.current = calculatePinchTransform({
+            startDistance: pinch.startDistance,
+            currentDistance: distanceBetween(first, second),
+            startZoom: pinch.startZoom,
+            startPan: pinch.startPan,
+            startCenter: pinch.startCenter,
+            currentCenter: midpointBetween(first, second),
+          });
+          if (pinchRafRef.current === null) {
+            pinchRafRef.current =
+              window.requestAnimationFrame(applyPendingPinch);
+          }
+        }
+        return;
+      }
+
+      if (suppressTouchUntilReleaseRef.current) return;
+    }
+
+    if (isPanningRef.current && e.pointerId === activePanPointerIdRef.current) {
       pendingPanRef.current = { x: e.clientX, y: e.clientY };
-      if (panRafRef.current == null) {
+      if (panRafRef.current === null) {
         panRafRef.current = window.requestAnimationFrame(() => {
           const pending = pendingPanRef.current;
           if (pending) {
             const deltaX = pending.x - lastPanPointRef.current.x;
             const deltaY = pending.y - lastPanPointRef.current.y;
-            const newPanX = panStateRef.current.x + deltaX;
-            const newPanY = panStateRef.current.y + deltaY;
-            setPan(newPanX, newPanY);
-            panStateRef.current = { x: newPanX, y: newPanY };
+            const nextPan = {
+              x: panStateRef.current.x + deltaX,
+              y: panStateRef.current.y + deltaY,
+            };
+            setPan(nextPan.x, nextPan.y);
+            panStateRef.current = nextPan;
             lastPanPointRef.current = { x: pending.x, y: pending.y };
           }
           panRafRef.current = null;
         });
       }
-    } else if (
-      isDragging &&
+      return;
+    }
+
+    const draggingNoteId = isDraggingRef.current;
+    if (
+      draggingNoteId &&
       e.pointerId === activeDragPointerIdRef.current &&
       containerRef.current
     ) {
-      const containerRect = containerRef.current.getBoundingClientRect();
-      // Use movement deltas to avoid layout-based jitter
-      const deltaX = e.movementX || e.clientX - lastPanPointRef.current.x;
-      const deltaY = e.movementY || e.clientY - lastPanPointRef.current.y;
-      const screenX = Math.max(
-        0,
-        Math.min(e.clientX - containerRect.left, containerRect.width)
-      );
-      const screenY = Math.max(
-        0,
-        Math.min(e.clientY - containerRect.top, containerRect.height)
-      );
-      const mouseWorldPos = screenToWorld(screenX, screenY);
-      const newPosition = {
-        x: mouseWorldPos.x - dragOffset.x,
-        y: mouseWorldPos.y - dragOffset.y,
+      const rect = containerRef.current.getBoundingClientRect();
+      const screenPosition = {
+        x: Math.max(0, Math.min(e.clientX - rect.left, rect.width)),
+        y: Math.max(0, Math.min(e.clientY - rect.top, rect.height)),
       };
-      pendingDragRef.current = newPosition;
-      if (dragRafRef.current == null) {
+      const worldPosition = {
+        x: (screenPosition.x - panStateRef.current.x) / zoomStateRef.current,
+        y: (screenPosition.y - panStateRef.current.y) / zoomStateRef.current,
+      };
+      const nextPosition = {
+        noteId: draggingNoteId,
+        x: worldPosition.x - dragOffsetRef.current.x,
+        y: worldPosition.y - dragOffsetRef.current.y,
+      };
+      pendingDragRef.current = nextPosition;
+      latestDragPositionRef.current = nextPosition;
+      if (dragRafRef.current === null) {
         dragRafRef.current = window.requestAnimationFrame(() => {
           const pending = pendingDragRef.current;
           if (pending) {
-            setNotes((prev) =>
-              prev.map((note) =>
-                note.id === isDragging
+            setNotes((previous) =>
+              previous.map((note) =>
+                note.id === pending.noteId
                   ? {
-                    ...note,
-                    position_x: pending.x,
-                    position_y: pending.y,
-                  }
-                  : note
-              )
+                      ...note,
+                      position_x: pending.x,
+                      position_y: pending.y,
+                    }
+                  : note,
+              ),
             );
           }
           dragRafRef.current = null;
         });
       }
-      // Update lastPanPointRef for delta fallback
-      lastPanPointRef.current = { x: e.clientX, y: e.clientY };
     }
   }
 
-  function handlePointerUp(e?: React.PointerEvent) {
-    if (isDragging) {
-      const note = notes.find((n) => n.id === isDragging);
-      if (note) {
-        const updates = {
-          position_x: note.position_x,
-          position_y: note.position_y,
-        };
+  function handlePointerUp(e: React.PointerEvent) {
+    const endingPinch = pinchGestureRef.current;
+    const wasSuppressedTouch =
+      e.pointerType === "touch" &&
+      (pinchGestureRef.current !== null ||
+        suppressTouchUntilReleaseRef.current);
 
-        if (isConnected) {
-          // If connected, update database immediately
-          updateNoteInDatabase(isDragging, updates);
-        } else {
-          // If offline, store update for later sync
-          setPendingUpdates((prev) => new Map(prev.set(isDragging, updates)));
-        }
+    if (e.pointerType === "touch") {
+      activeTouchPointersRef.current.delete(e.pointerId);
+    }
+
+    if (wasSuppressedTouch) {
+      if (pinchRafRef.current !== null) {
+        cancelAnimationFrame(pinchRafRef.current);
+        applyPendingPinch();
       }
+      releasePointerCapture(containerRef.current, e.pointerId);
+      if (
+        activeTouchPointersRef.current.size >= 2 &&
+        endingPinch?.pointerIds.includes(e.pointerId)
+      ) {
+        beginPinchGesture();
+      } else if (activeTouchPointersRef.current.size < 2) {
+        pinchGestureRef.current = null;
+      }
+      if (activeTouchPointersRef.current.size === 0) {
+        suppressTouchUntilReleaseRef.current = false;
+        pendingPinchRef.current = null;
+      }
+      return;
+    }
+
+    const draggingNoteId = isDraggingRef.current;
+    if (draggingNoteId && e.pointerId === activeDragPointerIdRef.current) {
+      if (dragRafRef.current !== null) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
+      const start = dragStartPositionRef.current;
+      const latest = latestDragPositionRef.current;
+      const wasCancelled = e.type === "pointercancel";
+
+      if (wasCancelled && start) {
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === start.noteId
+              ? { ...note, position_x: start.x, position_y: start.y }
+              : note,
+          ),
+        );
+      } else if (
+        start &&
+        latest &&
+        (latest.x !== start.x || latest.y !== start.y)
+      ) {
+        const updates = {
+          position_x: latest.x,
+          position_y: latest.y,
+        };
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === draggingNoteId ? { ...note, ...updates } : note,
+          ),
+        );
+        void updateNoteInDatabase(draggingNoteId, updates);
+      }
+
+      releasePointerCapture(
+        dragCaptureTargetRef.current,
+        activeDragPointerIdRef.current,
+      );
+      pendingDragRef.current = null;
+      latestDragPositionRef.current = null;
+      dragStartPositionRef.current = null;
+      dragCaptureTargetRef.current = null;
+      activeDragPointerIdRef.current = null;
+      isDraggingRef.current = null;
       setIsDragging(null);
     }
-    setIsPanning(false);
-    if (panRafRef.current) {
-      cancelAnimationFrame(panRafRef.current);
-      panRafRef.current = null;
-    }
-    if (dragRafRef.current) {
-      cancelAnimationFrame(dragRafRef.current);
-      dragRafRef.current = null;
-    }
-    // Release pointer capture if any
-    try {
-      if (e && (e.currentTarget as Element).hasPointerCapture(e.pointerId)) {
-        (e.currentTarget as Element).releasePointerCapture(e.pointerId);
-      }
-    } catch { }
-    if (e) {
-      if (e.pointerId === activePanPointerIdRef.current) {
-        activePanPointerIdRef.current = null;
-      }
-      if (e.pointerId === activeDragPointerIdRef.current) {
-        activeDragPointerIdRef.current = null;
-      }
-    } else {
-      activePanPointerIdRef.current = null;
-      activeDragPointerIdRef.current = null;
+
+    if (e.pointerId === activePanPointerIdRef.current) {
+      stopPanning(true);
     }
   }
 
@@ -536,8 +801,8 @@ function HomeContent() {
         : [...prev, entry.note].sort(
             (a, b) =>
               (a.created_at ? Date.parse(a.created_at) : 0) -
-              (b.created_at ? Date.parse(b.created_at) : 0)
-          )
+              (b.created_at ? Date.parse(b.created_at) : 0),
+          ),
     );
   }
 
@@ -560,114 +825,35 @@ function HomeContent() {
   function handleWheel(e: React.WheelEvent) {
     e.preventDefault();
     e.stopPropagation();
-    handleCustomZoom(e, e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
+    handleCustomZoom(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
   }
 
   function handleCustomZoom(
-    e: React.WheelEvent,
     clientX: number,
     clientY: number,
-    scaleFactor: number
+    scaleFactor: number,
   ) {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const mouseX = clientX - rect.left;
       const mouseY = clientY - rect.top;
 
-      // Zoom centered on mouse/touch position
-      const newZoom = Math.max(0.1, Math.min(1.0, zoom * scaleFactor));
+      const currentZoom = zoomStateRef.current;
+      const currentPan = panStateRef.current;
+      const newZoom = Math.max(
+        MIN_CANVAS_ZOOM,
+        Math.min(MAX_CANVAS_ZOOM, currentZoom * scaleFactor),
+      );
 
-      // Adjust pan to keep mouse position fixed
-      const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
-      const newPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
+      const newPanX =
+        mouseX - (mouseX - currentPan.x) * (newZoom / currentZoom);
+      const newPanY =
+        mouseY - (mouseY - currentPan.y) * (newZoom / currentZoom);
 
       setZoom(newZoom);
       setPan(newPanX, newPanY);
-    }
-  }
-
-  // Touch handlers for mobile/trackpad
-  function handleTouchStart(e: React.TouchEvent) {
-    if (e.touches.length === 2) {
-      // Two finger pinch - prevent browser zoom
-      e.preventDefault();
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const distance = Math.sqrt(
-        Math.pow(touch2.clientX - touch1.clientX, 2) +
-        Math.pow(touch2.clientY - touch1.clientY, 2)
-      );
-      setTouchStartDistance(distance);
-      setTouchStartZoom(zoom);
-    }
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (e.touches.length === 2 && touchStartDistance > 0) {
-      // Two finger pinch - prevent browser zoom
-      e.preventDefault();
-      e.stopPropagation();
-
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const distance = Math.sqrt(
-        Math.pow(touch2.clientX - touch1.clientX, 2) +
-        Math.pow(touch2.clientY - touch1.clientY, 2)
-      );
-      // Adjust sensitivity for finer control
-      const PINCH_SENSITIVITY = 0.7; // 0.5-0.8 = precise, 1.0 = raw
-      const rawScale = distance / touchStartDistance;
-      const scaledScale = 1 + (rawScale - 1) * PINCH_SENSITIVITY;
-      const nextZoom = Math.max(
-        0.1,
-        Math.min(1.0, touchStartZoom * scaledScale)
-      );
-
-      // Center zoom between the two touches
-      const centerX = (touch1.clientX + touch2.clientX) / 2;
-      const centerY = (touch1.clientY + touch2.clientY) / 2;
-
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const mouseX = centerX - rect.left;
-        const mouseY = centerY - rect.top;
-
-        // Throttle zoom updates via rAF to reduce jitter
-        pendingPinchRef.current = { zoom: nextZoom, mouseX, mouseY };
-        if (pinchRafRef.current == null) {
-          pinchRafRef.current = window.requestAnimationFrame(() => {
-            const pending = pendingPinchRef.current;
-            if (pending) {
-              const currentZoom = zoomStateRef.current;
-              const currentPan = panStateRef.current;
-              if (Math.abs(pending.zoom - currentZoom) > 0.0005) {
-                const newPanX =
-                  pending.mouseX -
-                  (pending.mouseX - currentPan.x) *
-                  (pending.zoom / currentZoom);
-                const newPanY =
-                  pending.mouseY -
-                  (pending.mouseY - currentPan.y) *
-                  (pending.zoom / currentZoom);
-                setZoom(pending.zoom);
-                setPan(newPanX, newPanY);
-              }
-            }
-            pinchRafRef.current = null;
-          });
-        }
-      }
-    }
-  }
-
-  function handleTouchEnd(e: React.TouchEvent) {
-    if (e.touches.length < 2) {
-      setTouchStartDistance(0);
-      setTouchStartZoom(1);
-    }
-    if (pinchRafRef.current) {
-      cancelAnimationFrame(pinchRafRef.current);
-      pinchRafRef.current = null;
+      zoomStateRef.current = newZoom;
+      panStateRef.current = { x: newPanX, y: newPanY };
     }
   }
 
@@ -676,29 +862,33 @@ function HomeContent() {
     if (editingNote) {
       setEditingNote(null);
     }
-    // Mouse/pen: left or middle button pans
     const isMouseOrPen = e.pointerType === "mouse" || e.pointerType === "pen";
     const shouldPanMouse = isMouseOrPen && (e.button === 0 || e.button === 1);
-    // Touch: only primary finger starts panning; multi-touch handled by pinch logic
-    const shouldPanTouch = e.pointerType === "touch" && e.isPrimary;
+    const shouldPanTouch =
+      e.pointerType === "touch" &&
+      activeTouchPointersRef.current.size === 1 &&
+      !suppressTouchUntilReleaseRef.current;
 
     if (shouldPanMouse || shouldPanTouch) {
       e.preventDefault();
       e.stopPropagation();
+      const captureTarget = containerRef.current;
+      if (!captureTarget) return;
       try {
-        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-      } catch { }
+        captureTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      isPanningRef.current = true;
       setIsPanning(true);
       activePanPointerIdRef.current = e.pointerId;
-      // Snap start to inside the canvas to avoid null deltas near borders
-      const rect = (e.currentTarget as Element).getBoundingClientRect();
+      panCaptureTargetRef.current = captureTarget;
+      const rect = captureTarget.getBoundingClientRect();
       const clampedX = Math.max(
         rect.left + 1,
-        Math.min(e.clientX, rect.right - 1)
+        Math.min(e.clientX, rect.right - 1),
       );
       const clampedY = Math.max(
         rect.top + 1,
-        Math.min(e.clientY, rect.bottom - 1)
+        Math.min(e.clientY, rect.bottom - 1),
       );
       lastPanPointRef.current = { x: clampedX, y: clampedY };
     }
@@ -716,7 +906,6 @@ function HomeContent() {
 
       if (e.code === "Space" && !e.repeat && !isTyping) {
         e.preventDefault();
-        setIsSpacePressed(true);
       }
 
       // Prevent browser zoom shortcuts
@@ -730,7 +919,7 @@ function HomeContent() {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space") {
-        setIsSpacePressed(false);
+        isPanningRef.current = false;
         setIsPanning(false);
       }
     };
@@ -773,92 +962,109 @@ function HomeContent() {
   }
 
   useEffect(() => {
-    loadNotes();
-    const unsub = setupRealtimeSubscription();
-    unsubscribeRef.current = unsub;
+    const fixture =
+      process.env.NODE_ENV !== "production"
+        ? (
+            window as Window & {
+              __NOTES_CANVAS_TEST_NOTES__?: NoteData[];
+            }
+          ).__NOTES_CANVAS_TEST_NOTES__
+        : undefined;
+    if (fixture) {
+      setNotes(
+        normalizeNotesCollection(
+          Object.fromEntries(fixture.map((note) => [note.id, note])),
+        ),
+      );
+      return;
+    }
 
-    return () => {
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
+    let cancelled = false;
+    let realtimeDelivered = false;
+
+    const loadInitialNotes = async () => {
+      try {
+        const response = await fetch("/api/notes", { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`Failed to load notes: ${response.status}`);
+        }
+        const data = (await response.json()) as { notes?: unknown };
+        const loaded = Array.isArray(data.notes) ? data.notes : [];
+        const normalized = normalizeNotesCollection(
+          Object.fromEntries(
+            loaded
+              .filter((note): note is Record<string, unknown> =>
+                Boolean(note && typeof note === "object"),
+              )
+              .map((note) => [String(note.id ?? ""), note]),
+          ),
+        )
+          .filter((note) => !pendingDeleteIdsRef.current.has(note.id))
+          .map((note) => ({
+            ...note,
+            ...pendingUpdatesRef.current.get(note.id),
+          }));
+        if (!cancelled && !realtimeDelivered) {
+          setNotes(normalized);
+        }
+      } catch (error) {
+        console.error("Error loading notes:", error);
       }
     };
-  }, []);
 
-  function setupRealtimeSubscription(): () => void {
+    void loadInitialNotes();
+
     const notesRef = ref(db, "notes");
     const unsubscribe = onValue(
       notesRef,
       (snapshot) => {
+        realtimeDelivered = true;
         setIsConnected(true);
         setLastActivity(Date.now());
-        const val = snapshot.val() || {};
-        const updated: NoteData[] = Object.entries(val).map(([id, data]) => {
-          const d = data as {
-            content?: string;
-            color?: string;
-            position_x?: number;
-            position_y?: number;
-            created_at?: number;
-            edited_at?: number;
-            user_id?: string | null;
-            user_name?: string | null;
-            stars?: Record<string, boolean>;
-          };
-          const createdMs =
-            typeof d.created_at === "number" ? d.created_at : Date.now();
-          const editedMs =
-            typeof d.edited_at === "number" ? d.edited_at : createdMs;
-          return {
-            id,
-            content: d.content ?? "",
-            color: d.color ?? "blue",
-            position_x: d.position_x ?? 0,
-            position_y: d.position_y ?? 0,
-            created_at: new Date(createdMs).toISOString(),
-            user_id: d.user_id ?? undefined,
-            user_name: d.user_name ?? undefined,
-            edited_at: new Date(editedMs).toISOString(),
-            stars: d.stars || undefined,
-          } as NoteData;
-        });
-        updated.sort(
-          (a, b) =>
-            (a.created_at ? Date.parse(a.created_at) : 0) -
-            (b.created_at ? Date.parse(b.created_at) : 0)
-        );
         setNotes(
-          ensureUniqueNotes(updated).filter(
-            (n) => !pendingDeleteIdsRef.current.has(n.id)
-          )
+          normalizeNotesCollection(snapshot.val())
+            .filter((note) => !pendingDeleteIdsRef.current.has(note.id))
+            .map((note) => ({
+              ...note,
+              ...pendingUpdatesRef.current.get(note.id),
+            })),
         );
-        if (pendingUpdatesRef.current.size > 0) {
-          syncPendingUpdates();
-        }
+        void syncPendingUpdates();
       },
       (error) => {
         console.error("Realtime subscription error:", error);
         setIsConnected(false);
-      }
+      },
     );
-    return unsubscribe;
-  }
+
+    return () => {
+      cancelled = true;
+      if (pendingRetryTimerRef.current !== null) {
+        window.clearTimeout(pendingRetryTimerRef.current);
+        pendingRetryTimerRef.current = null;
+      }
+      unsubscribe();
+    };
+    // This subscription deliberately stays mounted; its queue helpers read refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
       className="relative w-screen overflow-hidden prevent-zoom"
-      style={{ height: "100dvh", paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ height: "100dvh" }}
     >
       {/* Full-screen canvas */}
       <div
         ref={containerRef}
         className={`absolute inset-0 prevent-zoom ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
         onWheel={handleWheel}
+        onPointerDownCapture={handlePointerDownCapture}
         onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onClick={handleCanvasClick}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         <NotesCanvas
           notes={notes}
@@ -870,8 +1076,6 @@ function HomeContent() {
           onNoteChange={handleNoteChange}
           onColorChange={handleColorChange}
           onEditSave={() => setEditingNote(null)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           onCanvasPointerDown={handleCanvasPointerDown}
           currentUserId={user?.uid || undefined}
           onToggleStar={toggleStar}
@@ -880,7 +1084,8 @@ function HomeContent() {
 
       {/* Floating controls - Top Left and Right */}
       <div
-        className="absolute top-4 z-50 w-full px-4 flex flex-row justify-between prevent-zoom"
+        className="absolute z-50 w-full px-3 sm:px-4 flex flex-row justify-between prevent-zoom"
+        style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <button
           onClick={() => {
@@ -891,35 +1096,54 @@ function HomeContent() {
               createBox(window.innerWidth / 2, window.innerHeight / 2);
             }
           }}
-          className="group flex items-center gap-2.5 px-5 py-2.5 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5"
+          disabled={isCreating}
+          aria-label={isCreating ? "Creating note" : "Create note"}
+          className="group min-w-11 min-h-11 flex items-center justify-center gap-2.5 px-3 sm:px-5 py-2.5 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-indigo-500"
         >
           <div
             className="p-1 rounded-lg shadow-sm transition-colors duration-300 group-hover:scale-102"
             style={{ backgroundColor: NOTE_COLORS[nextColor].bg }}
           >
-            <PlusIcon className="w-4 h-4 text-gray-800/70" />
+            <PlusIcon
+              className={`w-4 h-4 text-gray-800/70 ${isCreating ? "animate-pulse" : ""}`}
+            />
           </div>
-          <span className="hidden sm:inline">Create Note</span>
+          <span className="hidden sm:inline">
+            {isCreating ? "Creating..." : "Create Note"}
+          </span>
         </button>
 
         <UserProfiles isConnected={isConnected} />
       </div>
-      {/* Centered Zoom Controls */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 prevent-zoom">
+      <div
+        className="hidden md:pointer-fine:block absolute left-1/2 -translate-x-1/2 z-50 prevent-zoom"
+        style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+      >
         <ZoomControls notes={notes} />
       </div>
 
       {/* Minimap for navigating distant notes */}
-      <div className="absolute bottom-4 left-4 z-50 prevent-zoom">
+      <div className="hidden pointer-fine:block absolute bottom-4 left-4 z-50 prevent-zoom">
         <MiniMap notes={notes} />
       </div>
 
-      {/* Toasts - Absolute positioned, themed */}
-      <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 px-4">
+      <div
+        className="md:pointer-fine:hidden absolute left-1/2 -translate-x-1/2 z-50 prevent-zoom"
+        style={{ bottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <ZoomControls notes={notes} />
+      </div>
+
+      <div
+        className="absolute left-1/2 -translate-x-1/2 z-[60] flex w-full max-w-md flex-col items-center gap-2 px-4"
+        style={{ top: "calc(env(safe-area-inset-top) + 5rem)" }}
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border backdrop-blur-xl animate-scale-in
+            className={`flex max-w-full items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border backdrop-blur-xl animate-scale-in
               ${t.type === "success" ? "bg-emerald-50/95 border-emerald-200" : ""}
               ${t.type === "info" ? "bg-sky-50/95 border-sky-200" : ""}
               ${t.type === "warning" ? "bg-amber-50/95 border-amber-200" : ""}
@@ -942,7 +1166,7 @@ function HomeContent() {
                 <AlertTriangle className="w-5 h-5" />
               )}
             </div>
-            <span className="text-sm font-medium text-gray-700">
+            <span className="min-w-0 break-words text-sm font-medium text-gray-700">
               {t.message}
             </span>
             {t.action && (
@@ -961,10 +1185,8 @@ function HomeContent() {
       </div>
 
       {/* Wordmark + purpose — also satisfies Google OAuth branding checks */}
-      <div className="fixed bottom-1 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">
-        <span className="text-xs font-semibold text-gray-500">
-          Live Notes
-        </span>
+      <div className="hidden pointer-fine:block fixed bottom-1 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">
+        <span className="text-xs font-semibold text-gray-500">Live Notes</span>
         <span className="hidden sm:inline text-[11px] text-gray-400">
           {" "}
           · a real-time shared sticky-note board

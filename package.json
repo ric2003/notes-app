@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src",
+    "test": "tsx --test tests/*.test.mjs",
+    "test:mobile": "node scripts/mobile-gesture-check.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -26,6 +28,7 @@
     "eslint-config-next": "15.4.5",
     "prettier": "^3.6.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

@@ -46,8 +46,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -61,7 +60,6 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         style={{
           minHeight: "100dvh",
-          paddingBottom: "env(safe-area-inset-bottom)",
           overscrollBehaviorY: "contain",
         }}
       >

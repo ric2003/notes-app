@@ -28,8 +28,6 @@ interface NotesCanvasProps {
   onNoteChange: (noteId: string, content: string) => void;
   onColorChange: (noteId: string, newColor: string) => void;
   onEditSave: () => void;
-  onPointerMove: (e: React.PointerEvent) => void;
-  onPointerUp: (e: React.PointerEvent) => void;
   onCanvasPointerDown?: (e: React.PointerEvent) => void;
   currentUserId?: string;
   onToggleStar: (noteId: string) => void;
@@ -45,8 +43,6 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   onNoteChange,
   onColorChange,
   onEditSave,
-  onPointerMove,
-  onPointerUp,
   onCanvasPointerDown,
   currentUserId,
   onToggleStar,
@@ -54,6 +50,15 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const { zoom, panX, panY, isAnimating } = useZoom();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showControls, setShowControls] = useState(true);
+  const [hasFinePointer, setHasFinePointer] = useState(true);
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: fine)");
+    const updatePointerType = () => setHasFinePointer(media.matches);
+    updatePointerType();
+    media.addEventListener("change", updatePointerType);
+    return () => media.removeEventListener("change", updatePointerType);
+  }, []);
 
   // Remember dismissal across reloads
   const CONTROLS_HIDDEN_KEY = "notesAppControlsHidden";
@@ -84,14 +89,14 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     (e: React.PointerEvent) => {
       onCanvasPointerDown?.(e);
     },
-    [onCanvasPointerDown]
+    [onCanvasPointerDown],
   );
 
   const handleNotePointerDown = useCallback(
     (e: React.PointerEvent, noteId: string) => {
       const target = e.target as HTMLElement;
       const isInteractive = Boolean(
-        target.closest("button,textarea,input,select,a,[role='button']")
+        target.closest("button,textarea,input,select,a,[role='button']"),
       );
       // Only start drag when not interacting with controls
       if (isInteractive) {
@@ -103,7 +108,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       e.stopPropagation();
       onPointerDown(e, noteId);
     },
-    [onPointerDown]
+    [onPointerDown],
   );
 
   const backgroundStyle = useMemo(() => {
@@ -120,7 +125,14 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
   // Connection lines
   const renderConnectionLines = useCallback(() => {
-    if (zoom < 0.5 || notes.length < 2) return null;
+    if (
+      !hasFinePointer ||
+      zoom < 0.5 ||
+      notes.length < 2 ||
+      notes.length > 60
+    ) {
+      return null;
+    }
 
     const connections: React.ReactElement[] = [];
     const NOTE_THRESHOLD = 150;
@@ -134,7 +146,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
 
         const distance = Math.sqrt(
           Math.pow(note1.position_x - note2.position_x, 2) +
-          Math.pow(note1.position_y - note2.position_y, 2)
+            Math.pow(note1.position_y - note2.position_y, 2),
         );
 
         if (distance < NOTE_THRESHOLD) {
@@ -151,7 +163,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
               strokeWidth={Math.max(0.5, 1 / zoom)}
               opacity={opacity}
               strokeDasharray={`${6 / zoom} ${6 / zoom}`}
-            />
+            />,
           );
         }
       });
@@ -169,16 +181,17 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         {connections}
       </svg>
     ) : null;
-  }, [notes, zoom]);
+  }, [hasFinePointer, notes, zoom]);
 
   // Note rendering - no transitions on transform for smooth panning
   const renderNote = useCallback(
-    (note: NoteData, index: number) => {
+    (note: NoteData) => {
       const isDraggingThis = isDragging === note.id;
 
       return (
         <div
-          key={`${note.id}-${index}`}
+          key={note.id}
+          data-note-id={note.id}
           className={`note-container absolute ${isDraggingThis ? "z-50" : "z-10"}`}
           style={{
             transform: `translate3d(${note.position_x}px, ${note.position_y}px, 0)`,
@@ -186,6 +199,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             opacity: isDraggingThis ? 0.95 : 1,
             cursor: isDraggingThis ? "grabbing" : "grab",
             pointerEvents: "auto",
+            willChange: isDraggingThis ? "transform" : undefined,
           }}
           onPointerDown={(e) => handleNotePointerDown(e, note.id)}
           onClick={(e) => e.stopPropagation()}
@@ -204,7 +218,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             createdBy={note.user_name || note.user_id || "Anonymous"}
             editedAt={note.edited_at}
             isStarred={Boolean(
-              currentUserId && note.stars && note.stars[currentUserId]
+              currentUserId && note.stars && note.stars[currentUserId],
             )}
             starCount={Object.keys(note.stars || {}).length}
             onToggleStar={() => onToggleStar(note.id)}
@@ -223,7 +237,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       onColorChange,
       currentUserId,
       onToggleStar,
-    ]
+    ],
   );
 
   return (
@@ -233,12 +247,8 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       style={{
         ...backgroundStyle,
         touchAction: "none",
-        willChange: "transform",
       }}
       onPointerDown={handleCanvasPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
     >
       <div
         className={`
@@ -259,7 +269,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       <div className="absolute bottom-4 right-4 flex gap-2 pointer-events-none">
         {showControls ? (
           <div
-            className="hidden md:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs"
+            className="hidden md:pointer-fine:block pointer-events-none bg-white/85 backdrop-blur-xl border border-white/60 rounded-2xl px-5 py-4 text-sm text-gray-600 shadow-lg max-w-xs"
             // Keep presses here from starting a canvas pan/pointer-capture,
             // which would swallow the close button's click
             onPointerDown={(e) => e.stopPropagation()}
@@ -291,7 +301,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
           </div>
         ) : (
           <button
-            className="hidden md:flex pointer-events-auto items-center justify-center w-9 h-9 bg-white/85 backdrop-blur-xl border border-white/60 rounded-xl shadow-lg text-gray-500 hover:text-gray-800 hover:bg-white transition-colors"
+            className="hidden md:pointer-fine:flex pointer-events-auto items-center justify-center w-9 h-9 bg-white/85 backdrop-blur-xl border border-white/60 rounded-xl shadow-lg text-gray-500 hover:text-gray-800 hover:bg-white transition-colors"
             onClick={restoreControls}
             onPointerDown={(e) => e.stopPropagation()}
             aria-label="Show controls help"

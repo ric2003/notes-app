@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeNotesCollection } from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,19 +22,6 @@ type NoteRecord = {
   user_name?: string | null;
   created_at?: number;
   edited_at?: number;
-  stars?: Record<string, boolean>;
-};
-
-type ApiNote = {
-  id: string;
-  content: string;
-  color: string;
-  position_x: number;
-  position_y: number;
-  user_id?: string;
-  user_name?: string;
-  created_at?: string;
-  edited_at?: string;
   stars?: Record<string, boolean>;
 };
 
@@ -63,29 +51,7 @@ export async function GET() {
     if (!res.ok) {
       throw new Error(`RTDB GET failed with status ${res.status}`);
     }
-    const val = ((await res.json()) || {}) as Record<string, unknown>;
-    const notes: ApiNote[] = Object.entries(val).map(([id, data]) => {
-      const d = (data ?? {}) as Partial<NoteRecord>;
-      const createdIso = toIsoStringFromMaybeNumber(d.created_at);
-      const editedIso = toIsoStringFromMaybeNumber(d.edited_at);
-      return {
-        id,
-        content: d.content ?? "",
-        color: d.color ?? "blue",
-        position_x: d.position_x ?? 0,
-        position_y: d.position_y ?? 0,
-        user_id: d.user_id ?? undefined,
-        user_name: d.user_name ?? undefined,
-        created_at: createdIso,
-        edited_at: editedIso ?? createdIso,
-        stars: d.stars ?? undefined,
-      };
-    });
-    notes.sort((a, b) => {
-      const aTime = a.created_at ? Date.parse(a.created_at) : 0;
-      const bTime = b.created_at ? Date.parse(b.created_at) : 0;
-      return aTime - bTime;
-    });
+    const notes = normalizeNotesCollection(await res.json());
     return NextResponse.json({ notes });
   } catch (error: unknown) {
     return NextResponse.json(
@@ -98,7 +64,7 @@ export async function GET() {
               ? error
               : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -165,7 +131,7 @@ export async function POST(req: Request) {
           stars: d.stars ?? undefined,
         },
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error: unknown) {
     return NextResponse.json(
@@ -178,7 +144,7 @@ export async function POST(req: Request) {
               ? error
               : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -7,6 +7,11 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
+import {
+  calculateContentFit,
+  MAX_CANVAS_ZOOM,
+  MIN_CANVAS_ZOOM,
+} from "@/lib/canvas-geometry";
 
 interface ZoomContextType {
   zoom: number;
@@ -21,7 +26,7 @@ interface ZoomContextType {
   zoomOut: () => void;
   resetZoom: () => void;
   fitToContent: (
-    notes: Array<{ position_x: number; position_y: number }>
+    notes: Array<{ position_x: number; position_y: number }>,
   ) => void;
   screenToWorld: (screenX: number, screenY: number) => { x: number; y: number };
   worldToScreen: (worldX: number, worldY: number) => { x: number; y: number };
@@ -45,12 +50,10 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
   const [panY, setPanYState] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  const MIN_ZOOM = 0.1;
-  const MAX_ZOOM = 1.0;
   const ZOOM_STEP = 0.15;
 
   const setZoom = useCallback((newZoom: number) => {
-    setZoomState(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom)));
+    setZoomState(Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, newZoom)));
   }, []);
 
   const setPan = useCallback((x: number, y: number) => {
@@ -65,12 +68,48 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
   }, []);
 
   const zoomIn = useCallback(() => {
-    animateTransition(() => setZoom(zoom + ZOOM_STEP));
-  }, [zoom, setZoom, animateTransition]);
+    const nextZoom = Math.min(MAX_CANVAS_ZOOM, zoom + ZOOM_STEP);
+    const centerX = containerWidth / 2;
+    const centerY = containerHeight / 2;
+    animateTransition(() => {
+      setZoom(nextZoom);
+      setPan(
+        centerX - (centerX - panX) * (nextZoom / zoom),
+        centerY - (centerY - panY) * (nextZoom / zoom),
+      );
+    });
+  }, [
+    zoom,
+    panX,
+    panY,
+    containerWidth,
+    containerHeight,
+    setZoom,
+    setPan,
+    animateTransition,
+  ]);
 
   const zoomOut = useCallback(() => {
-    animateTransition(() => setZoom(zoom - ZOOM_STEP));
-  }, [zoom, setZoom, animateTransition]);
+    const nextZoom = Math.max(MIN_CANVAS_ZOOM, zoom - ZOOM_STEP);
+    const centerX = containerWidth / 2;
+    const centerY = containerHeight / 2;
+    animateTransition(() => {
+      setZoom(nextZoom);
+      setPan(
+        centerX - (centerX - panX) * (nextZoom / zoom),
+        centerY - (centerY - panY) * (nextZoom / zoom),
+      );
+    });
+  }, [
+    zoom,
+    panX,
+    panY,
+    containerWidth,
+    containerHeight,
+    setZoom,
+    setPan,
+    animateTransition,
+  ]);
 
   const resetZoom = useCallback(() => {
     animateTransition(() => {
@@ -86,35 +125,19 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
         return;
       }
 
-      // Calculate bounding box of all notes
-      const padding = 100; // Extra padding around notes
-      const noteWidth = 256; // Note component width
-      const noteHeight = 192; // Note component min height
-
-      const minX = Math.min(...notes.map((n) => n.position_x)) - padding;
-      const maxX =
-        Math.max(...notes.map((n) => n.position_x + noteWidth)) + padding;
-      const minY = Math.min(...notes.map((n) => n.position_y)) - padding;
-      const maxY =
-        Math.max(...notes.map((n) => n.position_y + noteHeight)) + padding;
-
-      const contentWidth = maxX - minX;
-      const contentHeight = maxY - minY;
-
-      // Calculate zoom to fit content in container
-      const zoomX = containerWidth / contentWidth;
-      const zoomY = containerHeight / contentHeight;
-      const newZoom = Math.min(zoomX, zoomY, MAX_ZOOM);
-
-      // Center the content
-      const centerX =
-        (containerWidth - contentWidth * newZoom) / 2 - minX * newZoom;
-      const centerY =
-        (containerHeight - contentHeight * newZoom) / 2 - minY * newZoom;
+      const fit = calculateContentFit({
+        items: notes.map((note) => ({
+          x: note.position_x,
+          y: note.position_y,
+        })),
+        viewportWidth: containerWidth,
+        viewportHeight: containerHeight,
+      });
+      if (!fit) return;
 
       animateTransition(() => {
-        setZoom(newZoom);
-        setPan(centerX, centerY);
+        setZoom(fit.zoom);
+        setPan(fit.pan.x, fit.pan.y);
       });
     },
     [
@@ -124,7 +147,7 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
       setPan,
       resetZoom,
       animateTransition,
-    ]
+    ],
   );
 
   const screenToWorld = useCallback(
@@ -134,7 +157,7 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
         y: (screenY - panY) / zoom,
       };
     },
-    [zoom, panX, panY]
+    [zoom, panX, panY],
   );
 
   const worldToScreen = useCallback(
@@ -144,7 +167,7 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
         y: worldY * zoom + panY,
       };
     },
-    [zoom, panX, panY]
+    [zoom, panX, panY],
   );
 
   const value: ZoomContextType = {

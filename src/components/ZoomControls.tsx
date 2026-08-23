@@ -2,41 +2,58 @@
 
 import { useZoom } from "@/contexts/ZoomContext";
 import { ZoomIn, ZoomOut, RotateCcw, Maximize2 } from "lucide-react";
+import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from "@/lib/canvas-geometry";
 
 interface ZoomControlsProps {
   notes: Array<{ position_x: number; position_y: number }>;
+  className?: string;
 }
 
-const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
+const ZoomControls: React.FC<ZoomControlsProps> = ({
+  notes,
+  className = "",
+}) => {
   const { zoom, zoomIn, zoomOut, resetZoom, fitToContent } = useZoom();
 
   return (
-    <div className="hidden md:flex items-center gap-1 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl p-1.5 shadow-lg">
+    <div
+      className={`flex items-center gap-1 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl p-1.5 shadow-lg ${className}`}
+      aria-label="Canvas zoom controls"
+    >
       <button
         onClick={zoomOut}
-        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
+        className="min-w-11 min-h-11 flex items-center justify-center p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-indigo-500"
         title="Zoom Out"
-        disabled={zoom <= 0.1}
+        aria-label="Zoom out"
+        disabled={zoom <= MIN_CANVAS_ZOOM}
       >
         <ZoomOut
           size={16}
-          className={zoom <= 0.1 ? "text-gray-300" : "text-gray-600"}
+          className={
+            zoom <= MIN_CANVAS_ZOOM ? "text-gray-300" : "text-gray-600"
+          }
         />
       </button>
 
-      <div className="py-1.5 text-sm font-medium text-gray-600 min-w-[56px] text-center tabular-nums">
+      <div
+        className="py-1.5 text-sm font-medium text-gray-600 min-w-[48px] text-center tabular-nums"
+        aria-live="polite"
+      >
         {Math.round(zoom * 100)}%
       </div>
 
       <button
         onClick={zoomIn}
-        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
+        className="min-w-11 min-h-11 flex items-center justify-center p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-indigo-500"
         title="Zoom In"
-        disabled={zoom >= 1.0}
+        aria-label="Zoom in"
+        disabled={zoom >= MAX_CANVAS_ZOOM}
       >
         <ZoomIn
           size={16}
-          className={zoom >= 1.0 ? "text-gray-300" : "text-gray-600"}
+          className={
+            zoom >= MAX_CANVAS_ZOOM ? "text-gray-300" : "text-gray-600"
+          }
         />
       </button>
 
@@ -44,16 +61,18 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({ notes }) => {
 
       <button
         onClick={resetZoom}
-        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105"
-        title="Reset Zoom (1:1)"
+        className="min-w-11 min-h-11 flex items-center justify-center p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 focus-visible:outline-2 focus-visible:outline-indigo-500"
+        title="Reset View"
+        aria-label="Reset view"
       >
         <RotateCcw size={16} className="text-gray-600" />
       </button>
 
       <button
         onClick={() => fitToContent(notes)}
-        className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent"
+        className="min-w-11 min-h-11 flex items-center justify-center p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 hover:scale-105 disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-indigo-500"
         title="Fit All Notes"
+        aria-label="Fit all notes"
         disabled={notes.length === 0}
       >
         <Maximize2

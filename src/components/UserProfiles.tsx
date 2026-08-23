@@ -131,7 +131,7 @@ export default function UserProfiles({
     }
     const generated =
       typeof crypto !== "undefined" &&
-        (crypto as { randomUUID: () => string }).randomUUID
+      (crypto as { randomUUID: () => string }).randomUUID
         ? (crypto as { randomUUID: () => string }).randomUUID()
         : `anon_${Math.random().toString(36).slice(2)}`;
     window.localStorage.setItem("notesAppSessionId", generated);
@@ -147,7 +147,10 @@ export default function UserProfiles({
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setShowPresenceList(false);
+      if (event.key === "Escape") {
+        setShowPresenceList(false);
+        setShowAuthForm(false);
+      }
     };
     document.addEventListener("mousedown", handleDocumentClick);
     document.addEventListener("keydown", handleKeyDown);
@@ -164,7 +167,7 @@ export default function UserProfiles({
       if (currentUser) {
         setShowAuthForm(false);
         if (sessionId) {
-          remove(dbRef(db, `notes/presence/${sessionId}`)).catch(() => { });
+          remove(dbRef(db, `notes/presence/${sessionId}`)).catch(() => {});
         }
       }
     });
@@ -182,7 +185,7 @@ export default function UserProfiles({
       update(dbRef(db, `notes/presence/${prevId}`), {
         online: false,
         last_changed: serverTimestamp(),
-      }).catch(() => { });
+      }).catch(() => {});
     }
 
     const connectedRef = dbRef(db, ".info/connected");
@@ -204,7 +207,7 @@ export default function UserProfiles({
         photoURL: user?.photoURL ?? null,
         online: true,
         last_changed: serverTimestamp(),
-      }).catch(() => { });
+      }).catch(() => {});
 
       // Track current presence identity
       prevPresenceIdRef.current = id;
@@ -212,7 +215,7 @@ export default function UserProfiles({
       // Ensure we flip to offline when the tab disconnects
       onDisconnect(presenceRef)
         .update({ online: false, last_changed: serverTimestamp() })
-        .catch(() => { });
+        .catch(() => {});
     });
 
     return () => {
@@ -241,13 +244,13 @@ export default function UserProfiles({
           const entry =
             typeof raw === "object" && raw !== null
               ? (raw as {
-                name?: string;
-                email?: string | null;
-                isAnonymous?: boolean;
-                online?: boolean;
-                photoURL?: string | null;
-                username?: string | null;
-              })
+                  name?: string;
+                  email?: string | null;
+                  isAnonymous?: boolean;
+                  online?: boolean;
+                  photoURL?: string | null;
+                  username?: string | null;
+                })
               : {};
           return { id, ...entry } as PresenceEntry;
         })
@@ -266,7 +269,11 @@ export default function UserProfiles({
         return;
       }
       if (authMode === "signup") {
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        const cred = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password,
+        );
         // Fire-and-forget: signup shouldn't fail if the mail server hiccups
         sendEmailVerification(cred.user, {
           url:
@@ -325,7 +332,7 @@ export default function UserProfiles({
         await update(dbRef(db, `notes/presence/${user.uid}`), {
           online: false,
           last_changed: serverTimestamp(),
-        }).catch(() => { });
+        }).catch(() => {});
       }
       await signOut(auth);
     } catch {
@@ -355,7 +362,7 @@ export default function UserProfiles({
   const totalOnline = onlineUsers.length;
   const otherUsers = useMemo(
     () => onlineUsers.filter((u) => u.id !== (myId ?? "")),
-    [onlineUsers, myId]
+    [onlineUsers, myId],
   );
   const onlineLabel = useMemo(() => {
     if (totalOnline <= 1) return "Only you";
@@ -374,8 +381,11 @@ export default function UserProfiles({
           onClick={() =>
             otherUsers.length > 0 && setShowPresenceList((s) => !s)
           }
-          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 px-3 py-2 ${otherUsers.length > 0 ? "cursor-pointer hover:shadow-xl transition-shadow duration-300" : "cursor-default"
-            } select-none`}
+          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 px-3 py-2 ${
+            otherUsers.length > 0
+              ? "cursor-pointer hover:shadow-xl transition-shadow duration-300"
+              : "cursor-default"
+          } select-none`}
           title={otherUsers.length > 0 ? "Show online users" : undefined}
         >
           <div className="flex items-center">
@@ -438,7 +448,10 @@ export default function UserProfiles({
               </div>
               <div className="max-h-64 overflow-auto pr-1 space-y-1">
                 {onlineUsers.map((u) => (
-                  <div key={u.id} className="flex items-center gap-2.5 py-2 px-2 rounded-xl hover:bg-gray-50 transition-colors duration-200">
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-2.5 py-2 px-2 rounded-xl hover:bg-gray-50 transition-colors duration-200"
+                  >
                     {u.photoURL ? (
                       <img
                         src={u.photoURL}
@@ -478,8 +491,8 @@ export default function UserProfiles({
       {/* User Profile */}
       <div className="flex items-center">
         {/* Combined profile and name container */}
-        <div className="flex items-center bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 pl-1.5 pr-3.5 py-1.5">
-          <div className="relative mr-3">
+        <div className="min-h-11 flex items-center bg-white/95 backdrop-blur-xl rounded-2xl shadow-lg border border-white/70 pl-1.5 pr-1.5 sm:pr-3.5 py-1.5">
+          <div className="relative mr-1.5 sm:mr-3">
             {/* Main avatar with status ring */}
             <div
               className={`relative p-0.5 rounded-xl ${isConnected ? "bg-gradient-to-br from-emerald-400 to-teal-500" : "bg-gradient-to-br from-rose-400 to-red-500"} transition-all duration-300`}
@@ -505,12 +518,13 @@ export default function UserProfiles({
 
             {/* Connection Status indicator with glow */}
             <div
-              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-md border-2 border-white shadow-sm transition-all duration-300 ${isConnected ? "bg-emerald-500" : "bg-rose-500"
-                }`}
+              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-md border-2 border-white shadow-sm transition-all duration-300 ${
+                isConnected ? "bg-emerald-500" : "bg-rose-500"
+              }`}
               style={{
                 boxShadow: isConnected
-                  ? '0 0 8px rgba(16, 185, 129, 0.5)'
-                  : '0 0 8px rgba(244, 63, 94, 0.5)'
+                  ? "0 0 8px rgba(16, 185, 129, 0.5)"
+                  : "0 0 8px rgba(244, 63, 94, 0.5)",
               }}
             ></div>
             {/* Unverified email marker — only visible to yourself */}
@@ -524,29 +538,35 @@ export default function UserProfiles({
 
           {/* User name or sign in */}
           {user ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">
+            <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+              <span className="hidden md:block max-w-40 truncate text-sm font-medium text-gray-700">
                 {displayName}
               </span>
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200 px-2 py-1 hover:bg-gray-100 rounded-lg"
+                className="min-w-11 min-h-11 flex items-center justify-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200 px-2 py-1 hover:bg-gray-100 rounded-xl focus-visible:outline-2 focus-visible:outline-indigo-500"
                 title="Sign out"
+                aria-label="Sign out"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sign out</span>
+                <LogOut className="w-4 h-4" />
+                <span className="hidden lg:inline">Sign out</span>
               </button>
             </div>
           ) : (
             <button
               onClick={() => setShowAuthForm((s) => !s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${
+              className={`min-w-11 min-h-11 flex items-center justify-center gap-2 px-2 sm:px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-indigo-500 ${
                 showAuthForm
                   ? "bg-gray-100 text-gray-500"
                   : "text-gray-800 hover:bg-gray-100"
               }`}
+              aria-label={showAuthForm ? "Close sign in" : "Sign in"}
+              aria-expanded={showAuthForm}
             >
-              Sign in
+              {showAuthForm && <X className="w-4 h-4" />}
+              <span className={showAuthForm ? "hidden sm:inline" : ""}>
+                {showAuthForm ? "Close" : "Sign in"}
+              </span>
             </button>
           )}
         </div>
@@ -554,7 +574,12 @@ export default function UserProfiles({
 
       {/* Auth popover */}
       {!user && showAuthForm && (
-        <div className="absolute top-14 right-0 w-80 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-5 z-50 animate-scale-in">
+        <div
+          className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)_+_4rem)] bottom-[max(0.75rem,env(safe-area-inset-bottom))] overflow-y-auto touch-pan-y bg-white/98 backdrop-blur-xl border border-white/70 rounded-2xl shadow-xl p-5 z-50 animate-scale-in sm:absolute sm:inset-x-auto sm:top-14 sm:right-0 sm:bottom-auto sm:w-80 sm:max-h-[calc(100dvh-5rem)]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Account access"
+        >
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-semibold text-gray-900">
               {authMode === "login" ? "Welcome back" : "Join the board"}
@@ -570,13 +595,13 @@ export default function UserProfiles({
           <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1">
             <button
               onClick={() => setAuthMode("login")}
-              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "login" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
+              className={`min-h-11 flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "login" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
             >
               Login
             </button>
             <button
               onClick={() => setAuthMode("signup")}
-              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "signup" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
+              className={`min-h-11 flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "signup" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
             >
               Sign Up
             </button>
@@ -584,28 +609,37 @@ export default function UserProfiles({
           <div className="flex flex-col gap-2">
             <input
               type="email"
+              inputMode="email"
+              autoComplete="email"
+              aria-label="Email address"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+              className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
             />
             <input
               type="password"
+              autoComplete={
+                authMode === "login" ? "current-password" : "new-password"
+              }
+              aria-label="Password"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitAuth();
               }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-gray-300"
+              className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
             />
             {errorMessage && (
-              <div className="text-xs text-red-600 mt-1">{errorMessage}</div>
+              <div className="text-xs text-red-600 mt-1" role="alert">
+                {errorMessage}
+              </div>
             )}
             <button
               onClick={submitAuth}
               disabled={isSubmitting}
-              className="mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
+              className="min-h-11 mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
             >
               {authMode === "login" ? "Log In" : "Create Account"}
             </button>
@@ -618,7 +652,7 @@ export default function UserProfiles({
             <button
               onClick={signInWithGoogle}
               disabled={isSubmitting}
-              className="w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="min-h-11 w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <GoogleIcon />
               <span>Continue with Google</span>
