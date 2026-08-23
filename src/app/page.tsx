@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { ref, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import UserProfiles from "@/components/UserProfiles";
-import { ZoomProvider, useZoom } from "@/contexts/ZoomContext";
+import { ZoomProvider } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
 import MiniMap from "@/components/MiniMap";
+import MobileMiniMap from "@/components/MobileMiniMap";
 import { PlusIcon, AlertTriangle, CheckCircle, Info } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
@@ -17,16 +18,10 @@ import {
   type NoteColorName,
 } from "@/lib/noteColors";
 import { normalizeNotesCollection, type NoteData } from "@/lib/notes";
-import {
-  calculatePinchTransform,
-  CANVAS_NOTE_HEIGHT,
-  CANVAS_NOTE_WIDTH,
-  distanceBetween,
-  MAX_CANVAS_ZOOM,
-  midpointBetween,
-  MIN_CANVAS_ZOOM,
-  type CanvasPoint,
-} from "@/lib/canvas-geometry";
+import { CANVAS_NOTE_HEIGHT, CANVAS_NOTE_WIDTH } from "@/lib/canvas-geometry";
+import { saveNoteUpdate } from "@/lib/note-client";
+import { useCanvasGestures } from "@/hooks/useCanvasGestures";
+import { useNoteUpdateQueue } from "@/hooks/useNoteUpdateQueue";
 
 type ToastAction = {
   label: string;
@@ -42,65 +37,13 @@ type ToastItem = {
 
 function HomeContent() {
   const [notes, setNotes] = useState<NoteData[]>([]);
-  const [isDragging, setIsDragging] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [, setLastActivity] = useState(Date.now());
-  const [pendingUpdates, setPendingUpdates] = useState<
-    Map<string, Partial<NoteData>>
-  >(new Map());
-  const pendingUpdatesRef = useRef(pendingUpdates);
-  const isSyncingPendingUpdatesRef = useRef(false);
-  const pendingRetryTimerRef = useRef<number | null>(null);
-  const [isPanning, setIsPanning] = useState(false);
-  const lastPanPointRef = useRef({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { zoom, panX, panY, setPan, setZoom } = useZoom();
   const [user, setUser] = useState<User | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const isCreatingRef = useRef(false);
-  const panRafRef = useRef<number | null>(null);
-  const dragRafRef = useRef<number | null>(null);
-  const pinchRafRef = useRef<number | null>(null);
-  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
-  const pendingDragRef = useRef<{
-    noteId: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const pendingPinchRef = useRef<{
-    zoom: number;
-    pan: CanvasPoint;
-  } | null>(null);
-  const activePanPointerIdRef = useRef<number | null>(null);
-  const activeDragPointerIdRef = useRef<number | null>(null);
-  const panCaptureTargetRef = useRef<Element | null>(null);
-  const dragCaptureTargetRef = useRef<Element | null>(null);
-  const isPanningRef = useRef(false);
-  const isDraggingRef = useRef<string | null>(null);
-  const dragOffsetRef = useRef<CanvasPoint>({ x: 20, y: 20 });
-  const dragStartPositionRef = useRef<{
-    noteId: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const latestDragPositionRef = useRef<{
-    noteId: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const activeTouchPointersRef = useRef<Map<number, CanvasPoint>>(new Map());
-  const pinchGestureRef = useRef<{
-    pointerIds: [number, number];
-    startDistance: number;
-    startZoom: number;
-    startPan: CanvasPoint;
-    startCenter: CanvasPoint;
-  } | null>(null);
-  const suppressTouchUntilReleaseRef = useRef(false);
-  const panStateRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const zoomStateRef = useRef<number>(1);
 
   // Undoable deletes: notes stay in the DB during the grace window, so
   // realtime updates for them must be filtered out until it expires.
@@ -109,62 +52,6 @@ function HomeContent() {
   const pendingDeletesRef = useRef<
     Map<string, { note: NoteData; timer: number }>
   >(new Map());
-
-  useEffect(() => {
-    panStateRef.current = { x: panX, y: panY };
-  }, [panX, panY]);
-
-  useEffect(() => {
-    zoomStateRef.current = zoom;
-  }, [zoom]);
-
-  // Persist the offline queue so a refresh doesn't lose edits
-  const PENDING_UPDATES_KEY = "notesAppPendingUpdates";
-  const hydratedRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(PENDING_UPDATES_KEY);
-      if (raw) {
-        const entries = JSON.parse(raw) as [string, Partial<NoteData>][];
-        setPendingUpdates(new Map(entries));
-      }
-    } catch {
-      // Corrupt or unavailable storage; start clean
-    }
-    hydratedRef.current = true;
-  }, []);
-
-  useEffect(() => {
-    pendingUpdatesRef.current = pendingUpdates;
-    if (!hydratedRef.current) return;
-    try {
-      if (pendingUpdates.size === 0) {
-        window.localStorage.removeItem(PENDING_UPDATES_KEY);
-      } else {
-        window.localStorage.setItem(
-          PENDING_UPDATES_KEY,
-          JSON.stringify(Array.from(pendingUpdates.entries())),
-        );
-      }
-    } catch {
-      // Storage full or blocked; queue still lives in memory
-    }
-  }, [pendingUpdates]);
-
-  // Retry the offline queue when connectivity returns
-  useEffect(() => {
-    const handleOnline = () => {
-      if (pendingRetryTimerRef.current !== null) {
-        window.clearTimeout(pendingRetryTimerRef.current);
-        pendingRetryTimerRef.current = null;
-      }
-      void syncPendingUpdates();
-    };
-    window.addEventListener("online", handleOnline);
-    return () => window.removeEventListener("online", handleOnline);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function showToast(
     message: string,
@@ -183,6 +70,35 @@ function HomeContent() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
+  const { updateNote, mergeWithPending, flush } = useNoteUpdateQueue({
+    saveNote: saveNoteUpdate,
+    setNotes,
+    onSaveError: () => {
+      showToast("Couldn't save your change — it will be synced later", "error");
+    },
+  });
+
+  const {
+    containerRef,
+    isDragging,
+    isPanning,
+    handlePointerDownCapture,
+    handleNotePointerDown,
+    handlePointerMove,
+    handlePointerEnd,
+    handleCanvasPointerDown,
+    handleWheel,
+    screenToWorld,
+  } = useCanvasGestures({
+    notes,
+    setNotes,
+    editingNote,
+    setEditingNote,
+    onNoteMove: (noteId, updates) => {
+      void updateNote(noteId, updates);
+    },
+  });
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -199,77 +115,12 @@ function HomeContent() {
   // The plus chip previews the color the next note will get
   const [nextColor, setNextColor] = useState<NoteColorName>(pickRandomColor);
 
-  function replacePendingUpdates(next: Map<string, Partial<NoteData>>) {
-    pendingUpdatesRef.current = next;
-    setPendingUpdates(next);
-  }
-
-  function queuePendingUpdate(noteId: string, updates: Partial<NoteData>) {
-    const queuedUpdate = {
-      ...pendingUpdatesRef.current.get(noteId),
-      ...updates,
-    };
-    const next = new Map(pendingUpdatesRef.current);
-    next.set(noteId, queuedUpdate);
-    replacePendingUpdates(next);
-    return queuedUpdate;
-  }
-
-  function clearPendingUpdate(noteId: string, expected: Partial<NoteData>) {
-    if (pendingUpdatesRef.current.get(noteId) !== expected) return;
-    const next = new Map(pendingUpdatesRef.current);
-    next.delete(noteId);
-    replacePendingUpdates(next);
-  }
-
-  function schedulePendingRetry() {
-    if (
-      !navigator.onLine ||
-      pendingUpdatesRef.current.size === 0 ||
-      pendingRetryTimerRef.current !== null
-    ) {
-      return;
-    }
-    pendingRetryTimerRef.current = window.setTimeout(() => {
-      pendingRetryTimerRef.current = null;
-      void syncPendingUpdates();
-    }, 5_000);
-  }
-
-  async function syncPendingUpdates() {
-    if (
-      isSyncingPendingUpdatesRef.current ||
-      pendingUpdatesRef.current.size === 0
-    ) {
-      return;
-    }
-
-    isSyncingPendingUpdatesRef.current = true;
-    const queuedUpdates = [...pendingUpdatesRef.current.entries()];
-    try {
-      for (const [noteId, updates] of queuedUpdates) {
-        try {
-          await patchNote(noteId, updates);
-          clearPendingUpdate(noteId, updates);
-        } catch (error) {
-          console.error(`Failed to sync update for note ${noteId}:`, error);
-        }
-      }
-    } finally {
-      isSyncingPendingUpdatesRef.current = false;
-      schedulePendingRetry();
-    }
-  }
-
   async function createBox(screenX: number, screenY: number) {
     if (isCreatingRef.current) return;
     isCreatingRef.current = true;
     setIsCreating(true);
 
-    const worldCoords = {
-      x: (screenX - panStateRef.current.x) / zoomStateRef.current,
-      y: (screenY - panStateRef.current.y) / zoomStateRef.current,
-    };
+    const worldCoords = screenToWorld(screenX, screenY);
     const body = {
       content: "",
       color: nextColor,
@@ -302,40 +153,6 @@ function HomeContent() {
     } finally {
       isCreatingRef.current = false;
       setIsCreating(false);
-    }
-  }
-
-  async function patchNote(
-    noteId: string,
-    updates: Partial<NoteData>,
-  ): Promise<boolean> {
-    const res = await fetch(`/api/notes/${noteId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...updates }),
-    });
-    if (!res.ok) throw new Error(`Status ${res.status}`);
-    return true;
-  }
-
-  async function updateNoteInDatabase(
-    noteId: string,
-    updates: Partial<NoteData>,
-  ) {
-    const queuedUpdate = queuePendingUpdate(noteId, updates);
-
-    try {
-      await patchNote(noteId, queuedUpdate);
-      clearPendingUpdate(noteId, queuedUpdate);
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === noteId ? { ...note, ...queuedUpdate } : note,
-        ),
-      );
-    } catch (error) {
-      console.error("Error updating note:", error);
-      showToast("Couldn't save your change — it will be synced later", "error");
-      schedulePendingRetry();
     }
   }
 
@@ -372,394 +189,8 @@ function HomeContent() {
     }
   }
 
-  function releasePointerCapture(
-    target: Element | null,
-    pointerId: number | null,
-  ) {
-    if (!target || pointerId === null) return;
-    try {
-      if (target.hasPointerCapture(pointerId)) {
-        target.releasePointerCapture(pointerId);
-      }
-    } catch {}
-  }
-
-  function stopPanning(flushPending = false) {
-    const pending = pendingPanRef.current;
-    if (flushPending && pending) {
-      const nextPan = {
-        x: panStateRef.current.x + pending.x - lastPanPointRef.current.x,
-        y: panStateRef.current.y + pending.y - lastPanPointRef.current.y,
-      };
-      setPan(nextPan.x, nextPan.y);
-      panStateRef.current = nextPan;
-      lastPanPointRef.current = { ...pending };
-    }
-    releasePointerCapture(
-      panCaptureTargetRef.current,
-      activePanPointerIdRef.current,
-    );
-    isPanningRef.current = false;
-    setIsPanning(false);
-    activePanPointerIdRef.current = null;
-    panCaptureTargetRef.current = null;
-    pendingPanRef.current = null;
-    if (panRafRef.current !== null) {
-      cancelAnimationFrame(panRafRef.current);
-      panRafRef.current = null;
-    }
-  }
-
-  function cancelDragForPinch() {
-    const start = dragStartPositionRef.current;
-    if (start) {
-      setNotes((previous) =>
-        previous.map((note) =>
-          note.id === start.noteId
-            ? { ...note, position_x: start.x, position_y: start.y }
-            : note,
-        ),
-      );
-    }
-
-    releasePointerCapture(
-      dragCaptureTargetRef.current,
-      activeDragPointerIdRef.current,
-    );
-    if (dragRafRef.current !== null) {
-      cancelAnimationFrame(dragRafRef.current);
-      dragRafRef.current = null;
-    }
-    pendingDragRef.current = null;
-    latestDragPositionRef.current = null;
-    dragStartPositionRef.current = null;
-    dragCaptureTargetRef.current = null;
-    activeDragPointerIdRef.current = null;
-    isDraggingRef.current = null;
-    setIsDragging(null);
-  }
-
-  function beginPinchGesture() {
-    const container = containerRef.current;
-    const pointers = [...activeTouchPointersRef.current.entries()].slice(0, 2);
-    if (!container || pointers.length < 2) return;
-
-    stopPanning();
-    cancelDragForPinch();
-    suppressTouchUntilReleaseRef.current = true;
-
-    const rect = container.getBoundingClientRect();
-    const first = {
-      x: pointers[0][1].x - rect.left,
-      y: pointers[0][1].y - rect.top,
-    };
-    const second = {
-      x: pointers[1][1].x - rect.left,
-      y: pointers[1][1].y - rect.top,
-    };
-    const startDistance = distanceBetween(first, second);
-    if (startDistance <= 0) return;
-
-    pinchGestureRef.current = {
-      pointerIds: [pointers[0][0], pointers[1][0]],
-      startDistance,
-      startZoom: zoomStateRef.current,
-      startPan: { ...panStateRef.current },
-      startCenter: midpointBetween(first, second),
-    };
-
-    for (const [pointerId] of pointers) {
-      try {
-        container.setPointerCapture(pointerId);
-      } catch {}
-    }
-  }
-
-  function handlePointerDownCapture(e: React.PointerEvent) {
-    if (e.pointerType !== "touch") return;
-
-    activeTouchPointersRef.current.set(e.pointerId, {
-      x: e.clientX,
-      y: e.clientY,
-    });
-    if (activeTouchPointersRef.current.size === 2) {
-      e.preventDefault();
-      beginPinchGesture();
-    } else if (activeTouchPointersRef.current.size > 2) {
-      e.preventDefault();
-      suppressTouchUntilReleaseRef.current = true;
-    }
-  }
-
-  function handlePointerDown(e: React.PointerEvent, noteId: string) {
-    const target = e.target as HTMLElement;
-    const isDragHandle = target.closest(".note-drag-handle");
-    const isInteractiveElement = target.closest("button, textarea, input");
-    const touchIsPinching =
-      e.pointerType === "touch" &&
-      (activeTouchPointersRef.current.size > 1 ||
-        suppressTouchUntilReleaseRef.current);
-
-    if (
-      touchIsPinching ||
-      (!isDragHandle && (isInteractiveElement || e.button !== 0))
-    ) {
-      return;
-    }
-
-    const container = containerRef.current;
-    const note = notes.find((item) => item.id === noteId);
-    if (!container || !note) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = container.getBoundingClientRect();
-    const screenPosition = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
-    const worldPosition = {
-      x: (screenPosition.x - panStateRef.current.x) / zoomStateRef.current,
-      y: (screenPosition.y - panStateRef.current.y) / zoomStateRef.current,
-    };
-
-    dragOffsetRef.current = {
-      x: worldPosition.x - note.position_x,
-      y: worldPosition.y - note.position_y,
-    };
-    dragStartPositionRef.current = {
-      noteId,
-      x: note.position_x,
-      y: note.position_y,
-    };
-    latestDragPositionRef.current = {
-      noteId,
-      x: note.position_x,
-      y: note.position_y,
-    };
-    isDraggingRef.current = noteId;
-    setIsDragging(noteId);
-    activeDragPointerIdRef.current = e.pointerId;
-    dragCaptureTargetRef.current = container;
-    try {
-      container.setPointerCapture(e.pointerId);
-    } catch {}
-  }
-
-  function applyPendingPinch() {
-    const pending = pendingPinchRef.current;
-    if (pending) {
-      setZoom(pending.zoom);
-      setPan(pending.pan.x, pending.pan.y);
-      zoomStateRef.current = pending.zoom;
-      panStateRef.current = { ...pending.pan };
-      pendingPinchRef.current = null;
-    }
-    pinchRafRef.current = null;
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (
-      e.pointerType === "touch" &&
-      activeTouchPointersRef.current.has(e.pointerId)
-    ) {
-      activeTouchPointersRef.current.set(e.pointerId, {
-        x: e.clientX,
-        y: e.clientY,
-      });
-
-      const pinch = pinchGestureRef.current;
-      if (pinch) {
-        const firstPointer = activeTouchPointersRef.current.get(
-          pinch.pointerIds[0],
-        );
-        const secondPointer = activeTouchPointersRef.current.get(
-          pinch.pointerIds[1],
-        );
-        const container = containerRef.current;
-        if (firstPointer && secondPointer && container) {
-          e.preventDefault();
-          const rect = container.getBoundingClientRect();
-          const first = {
-            x: firstPointer.x - rect.left,
-            y: firstPointer.y - rect.top,
-          };
-          const second = {
-            x: secondPointer.x - rect.left,
-            y: secondPointer.y - rect.top,
-          };
-          pendingPinchRef.current = calculatePinchTransform({
-            startDistance: pinch.startDistance,
-            currentDistance: distanceBetween(first, second),
-            startZoom: pinch.startZoom,
-            startPan: pinch.startPan,
-            startCenter: pinch.startCenter,
-            currentCenter: midpointBetween(first, second),
-          });
-          if (pinchRafRef.current === null) {
-            pinchRafRef.current =
-              window.requestAnimationFrame(applyPendingPinch);
-          }
-        }
-        return;
-      }
-
-      if (suppressTouchUntilReleaseRef.current) return;
-    }
-
-    if (isPanningRef.current && e.pointerId === activePanPointerIdRef.current) {
-      pendingPanRef.current = { x: e.clientX, y: e.clientY };
-      if (panRafRef.current === null) {
-        panRafRef.current = window.requestAnimationFrame(() => {
-          const pending = pendingPanRef.current;
-          if (pending) {
-            const deltaX = pending.x - lastPanPointRef.current.x;
-            const deltaY = pending.y - lastPanPointRef.current.y;
-            const nextPan = {
-              x: panStateRef.current.x + deltaX,
-              y: panStateRef.current.y + deltaY,
-            };
-            setPan(nextPan.x, nextPan.y);
-            panStateRef.current = nextPan;
-            lastPanPointRef.current = { x: pending.x, y: pending.y };
-          }
-          panRafRef.current = null;
-        });
-      }
-      return;
-    }
-
-    const draggingNoteId = isDraggingRef.current;
-    if (
-      draggingNoteId &&
-      e.pointerId === activeDragPointerIdRef.current &&
-      containerRef.current
-    ) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const screenPosition = {
-        x: Math.max(0, Math.min(e.clientX - rect.left, rect.width)),
-        y: Math.max(0, Math.min(e.clientY - rect.top, rect.height)),
-      };
-      const worldPosition = {
-        x: (screenPosition.x - panStateRef.current.x) / zoomStateRef.current,
-        y: (screenPosition.y - panStateRef.current.y) / zoomStateRef.current,
-      };
-      const nextPosition = {
-        noteId: draggingNoteId,
-        x: worldPosition.x - dragOffsetRef.current.x,
-        y: worldPosition.y - dragOffsetRef.current.y,
-      };
-      pendingDragRef.current = nextPosition;
-      latestDragPositionRef.current = nextPosition;
-      if (dragRafRef.current === null) {
-        dragRafRef.current = window.requestAnimationFrame(() => {
-          const pending = pendingDragRef.current;
-          if (pending) {
-            setNotes((previous) =>
-              previous.map((note) =>
-                note.id === pending.noteId
-                  ? {
-                      ...note,
-                      position_x: pending.x,
-                      position_y: pending.y,
-                    }
-                  : note,
-              ),
-            );
-          }
-          dragRafRef.current = null;
-        });
-      }
-    }
-  }
-
-  function handlePointerUp(e: React.PointerEvent) {
-    const endingPinch = pinchGestureRef.current;
-    const wasSuppressedTouch =
-      e.pointerType === "touch" &&
-      (pinchGestureRef.current !== null ||
-        suppressTouchUntilReleaseRef.current);
-
-    if (e.pointerType === "touch") {
-      activeTouchPointersRef.current.delete(e.pointerId);
-    }
-
-    if (wasSuppressedTouch) {
-      if (pinchRafRef.current !== null) {
-        cancelAnimationFrame(pinchRafRef.current);
-        applyPendingPinch();
-      }
-      releasePointerCapture(containerRef.current, e.pointerId);
-      if (
-        activeTouchPointersRef.current.size >= 2 &&
-        endingPinch?.pointerIds.includes(e.pointerId)
-      ) {
-        beginPinchGesture();
-      } else if (activeTouchPointersRef.current.size < 2) {
-        pinchGestureRef.current = null;
-      }
-      if (activeTouchPointersRef.current.size === 0) {
-        suppressTouchUntilReleaseRef.current = false;
-        pendingPinchRef.current = null;
-      }
-      return;
-    }
-
-    const draggingNoteId = isDraggingRef.current;
-    if (draggingNoteId && e.pointerId === activeDragPointerIdRef.current) {
-      if (dragRafRef.current !== null) {
-        cancelAnimationFrame(dragRafRef.current);
-        dragRafRef.current = null;
-      }
-      const start = dragStartPositionRef.current;
-      const latest = latestDragPositionRef.current;
-      const wasCancelled = e.type === "pointercancel";
-
-      if (wasCancelled && start) {
-        setNotes((previous) =>
-          previous.map((note) =>
-            note.id === start.noteId
-              ? { ...note, position_x: start.x, position_y: start.y }
-              : note,
-          ),
-        );
-      } else if (
-        start &&
-        latest &&
-        (latest.x !== start.x || latest.y !== start.y)
-      ) {
-        const updates = {
-          position_x: latest.x,
-          position_y: latest.y,
-        };
-        setNotes((previous) =>
-          previous.map((note) =>
-            note.id === draggingNoteId ? { ...note, ...updates } : note,
-          ),
-        );
-        void updateNoteInDatabase(draggingNoteId, updates);
-      }
-
-      releasePointerCapture(
-        dragCaptureTargetRef.current,
-        activeDragPointerIdRef.current,
-      );
-      pendingDragRef.current = null;
-      latestDragPositionRef.current = null;
-      dragStartPositionRef.current = null;
-      dragCaptureTargetRef.current = null;
-      activeDragPointerIdRef.current = null;
-      isDraggingRef.current = null;
-      setIsDragging(null);
-    }
-
-    if (e.pointerId === activePanPointerIdRef.current) {
-      stopPanning(true);
-    }
-  }
-
   function handleNoteChange(noteId: string, content: string) {
-    updateNoteInDatabase(noteId, {
+    void updateNote(noteId, {
       content,
       edited_at: new Date().toISOString(),
     });
@@ -816,131 +247,11 @@ function HomeContent() {
   }
 
   function handleColorChange(noteId: string, newColor: string) {
-    updateNoteInDatabase(noteId, {
+    void updateNote(noteId, {
       color: newColor,
       edited_at: new Date().toISOString(),
     });
   }
-
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    handleCustomZoom(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 0.85);
-  }
-
-  function handleCustomZoom(
-    clientX: number,
-    clientY: number,
-    scaleFactor: number,
-  ) {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const mouseX = clientX - rect.left;
-      const mouseY = clientY - rect.top;
-
-      const currentZoom = zoomStateRef.current;
-      const currentPan = panStateRef.current;
-      const newZoom = Math.max(
-        MIN_CANVAS_ZOOM,
-        Math.min(MAX_CANVAS_ZOOM, currentZoom * scaleFactor),
-      );
-
-      const newPanX =
-        mouseX - (mouseX - currentPan.x) * (newZoom / currentZoom);
-      const newPanY =
-        mouseY - (mouseY - currentPan.y) * (newZoom / currentZoom);
-
-      setZoom(newZoom);
-      setPan(newPanX, newPanY);
-      zoomStateRef.current = newZoom;
-      panStateRef.current = { x: newPanX, y: newPanY };
-    }
-  }
-
-  function handleCanvasPointerDown(e: React.PointerEvent) {
-    // Clicking empty board ends any active note edit (like pressing Esc)
-    if (editingNote) {
-      setEditingNote(null);
-    }
-    const isMouseOrPen = e.pointerType === "mouse" || e.pointerType === "pen";
-    const shouldPanMouse = isMouseOrPen && (e.button === 0 || e.button === 1);
-    const shouldPanTouch =
-      e.pointerType === "touch" &&
-      activeTouchPointersRef.current.size === 1 &&
-      !suppressTouchUntilReleaseRef.current;
-
-    if (shouldPanMouse || shouldPanTouch) {
-      e.preventDefault();
-      e.stopPropagation();
-      const captureTarget = containerRef.current;
-      if (!captureTarget) return;
-      try {
-        captureTarget.setPointerCapture(e.pointerId);
-      } catch {}
-      isPanningRef.current = true;
-      setIsPanning(true);
-      activePanPointerIdRef.current = e.pointerId;
-      panCaptureTargetRef.current = captureTarget;
-      const rect = captureTarget.getBoundingClientRect();
-      const clampedX = Math.max(
-        rect.left + 1,
-        Math.min(e.clientX, rect.right - 1),
-      );
-      const clampedY = Math.max(
-        rect.top + 1,
-        Math.min(e.clientY, rect.bottom - 1),
-      );
-      lastPanPointRef.current = { x: clampedX, y: clampedY };
-    }
-  }
-
-  // Handle keyboard shortcuts and prevent browser zoom
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't prevent space if user is typing in an input/textarea
-      const target = e.target as HTMLElement;
-      const isTyping =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.contentEditable === "true";
-
-      if (e.code === "Space" && !e.repeat && !isTyping) {
-        e.preventDefault();
-      }
-
-      // Prevent browser zoom shortcuts
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        (e.key === "+" || e.key === "-" || e.key === "0")
-      ) {
-        e.preventDefault();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        isPanningRef.current = false;
-        setIsPanning(false);
-      }
-    };
-
-    // Prevent browser zoom on wheel with ctrl/cmd
-    const handleDocumentWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    document.addEventListener("wheel", handleDocumentWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      document.removeEventListener("wheel", handleDocumentWheel);
-    };
-  }, []);
 
   function handleCanvasClick(e: React.MouseEvent) {
     // Only create notes with double-click to avoid conflicts with panning
@@ -990,20 +301,17 @@ function HomeContent() {
         }
         const data = (await response.json()) as { notes?: unknown };
         const loaded = Array.isArray(data.notes) ? data.notes : [];
-        const normalized = normalizeNotesCollection(
-          Object.fromEntries(
-            loaded
-              .filter((note): note is Record<string, unknown> =>
-                Boolean(note && typeof note === "object"),
-              )
-              .map((note) => [String(note.id ?? ""), note]),
-          ),
-        )
-          .filter((note) => !pendingDeleteIdsRef.current.has(note.id))
-          .map((note) => ({
-            ...note,
-            ...pendingUpdatesRef.current.get(note.id),
-          }));
+        const normalized = mergeWithPending(
+          normalizeNotesCollection(
+            Object.fromEntries(
+              loaded
+                .filter((note): note is Record<string, unknown> =>
+                  Boolean(note && typeof note === "object"),
+                )
+                .map((note) => [String(note.id ?? ""), note]),
+            ),
+          ).filter((note) => !pendingDeleteIdsRef.current.has(note.id)),
+        );
         if (!cancelled && !realtimeDelivered) {
           setNotes(normalized);
         }
@@ -1022,14 +330,13 @@ function HomeContent() {
         setIsConnected(true);
         setLastActivity(Date.now());
         setNotes(
-          normalizeNotesCollection(snapshot.val())
-            .filter((note) => !pendingDeleteIdsRef.current.has(note.id))
-            .map((note) => ({
-              ...note,
-              ...pendingUpdatesRef.current.get(note.id),
-            })),
+          mergeWithPending(
+            normalizeNotesCollection(snapshot.val()).filter(
+              (note) => !pendingDeleteIdsRef.current.has(note.id),
+            ),
+          ),
         );
-        void syncPendingUpdates();
+        void flush();
       },
       (error) => {
         console.error("Realtime subscription error:", error);
@@ -1039,15 +346,9 @@ function HomeContent() {
 
     return () => {
       cancelled = true;
-      if (pendingRetryTimerRef.current !== null) {
-        window.clearTimeout(pendingRetryTimerRef.current);
-        pendingRetryTimerRef.current = null;
-      }
       unsubscribe();
     };
-    // This subscription deliberately stays mounted; its queue helpers read refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [flush, mergeWithPending]);
 
   return (
     <div
@@ -1062,15 +363,15 @@ function HomeContent() {
         onPointerDownCapture={handlePointerDownCapture}
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
         onClick={handleCanvasClick}
       >
         <NotesCanvas
           notes={notes}
           isDragging={isDragging}
           editingNote={editingNote}
-          onPointerDown={handlePointerDown}
+          onPointerDown={handleNotePointerDown}
           onNoteEdit={handleNoteEdit}
           onNoteDelete={handleNoteDelete}
           onNoteChange={handleNoteChange}
@@ -1126,6 +427,8 @@ function HomeContent() {
       <div className="hidden pointer-fine:block absolute bottom-4 left-4 z-50 prevent-zoom">
         <MiniMap notes={notes} />
       </div>
+
+      <MobileMiniMap notes={notes} />
 
       <div
         className="md:pointer-fine:hidden absolute left-1/2 -translate-x-1/2 z-50 prevent-zoom"

@@ -24,6 +24,73 @@ import {
   update,
 } from "firebase/database";
 
+const PRESENCE_ROOT = "presence";
+const LEGACY_PRESENCE_ROOT = "notes/presence";
+
+type PresenceEntry = {
+  id: string;
+  name?: string;
+  email?: string | null;
+  isAnonymous?: boolean;
+  online?: boolean;
+  photoURL?: string | null;
+  username?: string | null;
+};
+
+function presencePath(id: string, legacy = false) {
+  return `${legacy ? LEGACY_PRESENCE_ROOT : PRESENCE_ROOT}/${id}`;
+}
+
+async function removePresence(id: string) {
+  await Promise.allSettled([
+    remove(dbRef(db, presencePath(id))),
+    remove(dbRef(db, presencePath(id, true))),
+  ]);
+}
+
+async function updatePresenceStatus(
+  id: string,
+  updates: Record<string, unknown>,
+) {
+  try {
+    await update(dbRef(db, presencePath(id)), updates);
+  } catch {
+    await update(dbRef(db, presencePath(id, true)), updates);
+  }
+}
+
+async function establishPresence(
+  id: string,
+  entry: Omit<PresenceEntry, "id"> & { last_changed: unknown },
+) {
+  let activeRef = dbRef(db, presencePath(id));
+  try {
+    await set(activeRef, { id, ...entry });
+    void remove(dbRef(db, presencePath(id, true))).catch(() => {});
+  } catch {
+    activeRef = dbRef(db, presencePath(id, true));
+    await set(activeRef, { id, ...entry });
+  }
+
+  await onDisconnect(activeRef).update({
+    online: false,
+    last_changed: serverTimestamp(),
+  });
+}
+
+function readPresenceEntries(value: unknown): PresenceEntry[] {
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>)
+    .map(([id, raw]) => {
+      const entry =
+        typeof raw === "object" && raw !== null
+          ? (raw as Omit<PresenceEntry, "id">)
+          : {};
+      return { id, ...entry };
+    })
+    .filter((entry) => entry.online);
+}
+
 interface UserProfilesProps {
   className?: string;
   isConnected?: boolean;
@@ -99,16 +166,7 @@ export default function UserProfiles({
   const [user, setUser] = useState<User | null>(null);
   const [isEmailVerified, setIsEmailVerified] = useState<boolean | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<
-    {
-      id: string;
-      name?: string;
-      email?: string | null;
-      isAnonymous?: boolean;
-      photoURL?: string | null;
-      username?: string | null;
-    }[]
-  >([]);
+  const [onlineUsers, setOnlineUsers] = useState<PresenceEntry[]>([]);
   const [showAuthForm, setShowAuthForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -167,7 +225,7 @@ export default function UserProfiles({
       if (currentUser) {
         setShowAuthForm(false);
         if (sessionId) {
-          remove(dbRef(db, `notes/presence/${sessionId}`)).catch(() => {});
+          void removePresence(sessionId);
         }
       }
     });
@@ -182,7 +240,7 @@ export default function UserProfiles({
     const newId = user?.uid ?? sessionId;
     const prevId = prevPresenceIdRef.current;
     if (prevId && prevId !== newId) {
-      update(dbRef(db, `notes/presence/${prevId}`), {
+      void updatePresenceStatus(prevId, {
         online: false,
         last_changed: serverTimestamp(),
       }).catch(() => {});
@@ -196,11 +254,7 @@ export default function UserProfiles({
       const id = user?.uid ?? sessionId;
       const name = user?.displayName || user?.email || "Anonymous";
       const emailVal = user?.email ?? null;
-      const presenceRef = dbRef(db, `notes/presence/${id}`);
-
-      // Set online state
-      set(presenceRef, {
-        id,
+      void establishPresence(id, {
         name,
         email: emailVal,
         isAnonymous: !user,
@@ -211,11 +265,6 @@ export default function UserProfiles({
 
       // Track current presence identity
       prevPresenceIdRef.current = id;
-
-      // Ensure we flip to offline when the tab disconnects
-      onDisconnect(presenceRef)
-        .update({ online: false, last_changed: serverTimestamp() })
-        .catch(() => {});
     });
 
     return () => {
@@ -226,38 +275,39 @@ export default function UserProfiles({
 
   // Subscribe to presence list
   useEffect(() => {
-    const presenceListRef = dbRef(db, "notes/presence");
-    const unsubscribe = onDbValue(presenceListRef, (snapshot) => {
-      const val = snapshot.val() || {};
-      type PresenceEntry = {
-        id: string;
-        name?: string;
-        email?: string | null;
-        isAnonymous?: boolean;
-        online?: boolean;
-        photoURL?: string | null;
-        username?: string | null;
-      };
-      const list: PresenceEntry[] = Object.keys(val)
-        .map((id) => {
-          const raw = val[id] as unknown;
-          const entry =
-            typeof raw === "object" && raw !== null
-              ? (raw as {
-                  name?: string;
-                  email?: string | null;
-                  isAnonymous?: boolean;
-                  online?: boolean;
-                  photoURL?: string | null;
-                  username?: string | null;
-                })
-              : {};
-          return { id, ...entry } as PresenceEntry;
-        })
-        .filter((u) => !!u && u.online);
-      setOnlineUsers(list);
-    });
-    return () => unsubscribe();
+    const sources = {
+      current: new Map<string, PresenceEntry>(),
+      legacy: new Map<string, PresenceEntry>(),
+    };
+    const publish = () => {
+      setOnlineUsers(
+        Array.from(new Map([...sources.legacy, ...sources.current]).values()),
+      );
+    };
+    const subscribe = (root: string, source: keyof typeof sources) =>
+      onDbValue(
+        dbRef(db, root),
+        (snapshot) => {
+          sources[source] = new Map(
+            readPresenceEntries(snapshot.val()).map((entry) => [
+              entry.id,
+              entry,
+            ]),
+          );
+          publish();
+        },
+        () => {
+          sources[source] = new Map();
+          publish();
+        },
+      );
+
+    const unsubscribeCurrent = subscribe(PRESENCE_ROOT, "current");
+    const unsubscribeLegacy = subscribe(LEGACY_PRESENCE_ROOT, "legacy");
+    return () => {
+      unsubscribeCurrent();
+      unsubscribeLegacy();
+    };
   }, []);
 
   const submitAuth = async () => {
@@ -329,7 +379,7 @@ export default function UserProfiles({
     try {
       // Immediately mark current user presence offline to avoid duplicates
       if (user?.uid) {
-        await update(dbRef(db, `notes/presence/${user.uid}`), {
+        await updatePresenceStatus(user.uid, {
           online: false,
           last_changed: serverTimestamp(),
         }).catch(() => {});

@@ -16,6 +16,13 @@
         }
       }
     },
+    "presence": {
+      ".read": true,
+      "$id": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['id','name','online','last_changed']) && newData.child('id').val() === $id && newData.child('online').isBoolean()"
+      }
+    },
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
@@ -29,8 +36,7 @@
         "photoURL": {
           ".validate": "newData.val() === null || newData.isString()"
         }
-      }
-      ,
+      },
       "byNickname": {
         ".read": true,
         "$lower": {
@@ -41,5 +47,3 @@
     }
   }
 }
-
-
