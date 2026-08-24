@@ -577,6 +577,7 @@ async function runMobileLayoutChecks(client) {
           bottom: rect.bottom,
           zoomRight: zoomRect.right,
           zoomBottom: zoomRect.bottom,
+          zoomHeight: zoomRect.height,
         };
       })()`,
     },
@@ -588,7 +589,8 @@ async function runMobileLayoutChecks(client) {
     button.height < 43.5 ||
     button.left - button.zoomRight < 4 ||
     button.left - button.zoomRight > 12 ||
-    Math.abs(button.bottom - button.zoomBottom) > 1
+    Math.abs(button.bottom - button.zoomBottom) > 1 ||
+    Math.abs(button.height - button.zoomHeight) > 1
   ) {
     throw new Error(
       `mobile minimap toggle is unavailable or too small: ${JSON.stringify(button)}`,
