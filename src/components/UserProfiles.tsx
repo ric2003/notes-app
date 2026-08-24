@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { UserIcon, LogOut, X } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import {
@@ -632,9 +633,14 @@ export default function UserProfiles({
         >
           <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:block sm:min-h-0 sm:max-w-none sm:p-0">
             <div className="mb-5 text-center sm:hidden">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-900 text-white shadow-lg">
-                <UserIcon className="h-6 w-6" />
-              </div>
+              <Image
+                src="/icon.png"
+                alt=""
+                width={64}
+                height={64}
+                className="mx-auto mb-3 h-16 w-16 drop-shadow-lg"
+                aria-hidden="true"
+              />
               <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
                 Live Notes
               </h1>
