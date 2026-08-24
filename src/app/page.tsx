@@ -17,7 +17,11 @@ import {
   NOTE_COLOR_NAMES,
   type NoteColorName,
 } from "@/lib/noteColors";
-import { normalizeNotesCollection, type NoteData } from "@/lib/notes";
+import {
+  getProfilePhotoBackfills,
+  normalizeNotesCollection,
+  type NoteData,
+} from "@/lib/notes";
 import { CANVAS_NOTE_HEIGHT, CANVAS_NOTE_WIDTH } from "@/lib/canvas-geometry";
 import { saveNoteUpdate } from "@/lib/note-client";
 import { useCanvasGestures } from "@/hooks/useCanvasGestures";
@@ -105,6 +109,14 @@ function HomeContent() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const backfills = getProfilePhotoBackfills(notes, user.uid, user.photoURL);
+    for (const { noteId, photoUrl } of backfills) {
+      void updateNote(noteId, { user_photo_url: photoUrl });
+    }
+  }, [notes, updateNote, user]);
 
   function pickRandomColor(): NoteColorName {
     return NOTE_COLOR_NAMES[
@@ -401,7 +413,7 @@ function HomeContent() {
           }}
           disabled={isCreating}
           aria-label={isCreating ? "Creating note" : "Create note"}
-          className="group min-w-11 min-h-11 flex items-center justify-center gap-2.5 px-3 sm:px-5 py-2.5 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-indigo-500"
+          className="group min-w-11 h-14 flex items-center justify-center gap-2.5 px-3 sm:px-5 py-2.5 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 font-medium text-gray-700 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-indigo-500"
         >
           <div
             className="p-1 rounded-lg shadow-sm transition-colors duration-300 group-hover:scale-102"

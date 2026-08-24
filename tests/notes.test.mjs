@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getProfilePhotoBackfills,
   isReservedNoteId,
   normalizeNotesCollection,
   normalizeUserPhotoUrl,
@@ -62,4 +63,53 @@ test("profile photos accept secure URLs only", () => {
     undefined,
   );
   assert.equal(normalizeUserPhotoUrl("not a url"), undefined);
+});
+
+test("signed-in users backfill photos only on their own existing notes", () => {
+  const backfills = getProfilePhotoBackfills(
+    [
+      {
+        id: "owned-missing",
+        content: "Mine",
+        color: "blue",
+        position_x: 0,
+        position_y: 0,
+        user_id: "user-1",
+      },
+      {
+        id: "owned-outdated",
+        content: "Mine too",
+        color: "pink",
+        position_x: 10,
+        position_y: 10,
+        user_id: "user-1",
+        user_photo_url: "https://example.com/old.png",
+      },
+      {
+        id: "someone-else",
+        content: "Not mine",
+        color: "green",
+        position_x: 20,
+        position_y: 20,
+        user_id: "user-2",
+      },
+    ],
+    "user-1",
+    "https://lh3.googleusercontent.com/a/current",
+  );
+
+  assert.deepEqual(backfills, [
+    {
+      noteId: "owned-missing",
+      photoUrl: "https://lh3.googleusercontent.com/a/current",
+    },
+    {
+      noteId: "owned-outdated",
+      photoUrl: "https://lh3.googleusercontent.com/a/current",
+    },
+  ]);
+  assert.deepEqual(
+    getProfilePhotoBackfills([], "user-1", "http://example.com/avatar.png"),
+    [],
+  );
 });

@@ -44,6 +44,22 @@ export function normalizeUserPhotoUrl(value: unknown): string | undefined {
   }
 }
 
+export function getProfilePhotoBackfills(
+  notes: NoteData[],
+  userId: string,
+  photoUrl: unknown,
+): Array<{ noteId: string; photoUrl: string }> {
+  const normalizedPhotoUrl = normalizeUserPhotoUrl(photoUrl);
+  if (!normalizedPhotoUrl) return [];
+
+  return notes
+    .filter(
+      (note) =>
+        note.user_id === userId && note.user_photo_url !== normalizedPhotoUrl,
+    )
+    .map((note) => ({ noteId: note.id, photoUrl: normalizedPhotoUrl }));
+}
+
 export function isReservedNoteId(id: string) {
   return RESERVED_NOTE_IDS.has(id);
 }
