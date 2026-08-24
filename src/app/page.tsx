@@ -385,7 +385,7 @@ function HomeContent() {
 
       {/* Floating controls - Top Left and Right */}
       <div
-        className="absolute z-50 w-full px-3 sm:px-4 flex flex-row justify-between prevent-zoom"
+        className="absolute z-[70] w-full px-3 sm:px-4 flex flex-row justify-between prevent-zoom"
         style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <button

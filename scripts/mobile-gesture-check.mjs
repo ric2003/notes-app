@@ -520,10 +520,15 @@ async function runMobileLayoutChecks(client) {
         height: input.getBoundingClientRect().height,
         fontSize: Number.parseFloat(getComputedStyle(input).fontSize),
       }));
+      const closeButton = dialog.querySelector('[aria-label="Close account access"]');
+      const closeRect = closeButton.getBoundingClientRect();
       return {
         rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
         viewport: { width: innerWidth, height: innerHeight },
         inputs,
+        closeButton: { width: closeRect.width, height: closeRect.height },
+        coversBottomControls:
+          document.elementFromPoint(innerWidth / 2, innerHeight - 24)?.closest('[role="dialog"]') === dialog,
         clientHeight: dialog.clientHeight,
         scrollHeight: dialog.scrollHeight,
       };
@@ -541,28 +546,35 @@ async function runMobileLayoutChecks(client) {
     );
   }
   if (
-    dialog.rect.left < 0 ||
-    dialog.rect.right > dialog.viewport.width ||
-    dialog.rect.top < 0 ||
-    dialog.rect.bottom > dialog.viewport.height
+    Math.abs(dialog.rect.left) > 0.5 ||
+    Math.abs(dialog.rect.right - dialog.viewport.width) > 0.5 ||
+    Math.abs(dialog.rect.top) > 0.5 ||
+    Math.abs(dialog.rect.bottom - dialog.viewport.height) > 0.5 ||
+    !dialog.coversBottomControls
   ) {
-    throw new Error("the mobile account sheet is clipped by the viewport");
+    throw new Error(
+      `the mobile account view does not fully cover the canvas: ${JSON.stringify(dialog)}`,
+    );
   }
   if (
-    dialog.inputs.some((input) => input.height < 43.5 || input.fontSize < 15.5)
+    dialog.inputs.some(
+      (input) => input.height < 43.5 || input.fontSize < 15.5,
+    ) ||
+    dialog.closeButton.width < 43.5 ||
+    dialog.closeButton.height < 43.5
   ) {
     throw new Error(
       `mobile account inputs are too small: ${JSON.stringify(dialog.inputs)}`,
     );
   }
-  console.log("PASS: 320px controls and account sheet fit the viewport");
+  console.log("PASS: full-screen mobile account view covers canvas controls");
 
   const { result: minimapButtonResult } = await client.send(
     "Runtime.evaluate",
     {
       returnByValue: true,
       expression: `(() => {
-        document.querySelector('[aria-label="Close sign in"]')?.click();
+        document.querySelector('[aria-label="Close account access"]')?.click();
         const button = document.querySelector('[aria-label="Open board minimap"]');
         const zoom = [...document.querySelectorAll('[aria-label="Canvas zoom controls"]')]
           .find((element) => element.getBoundingClientRect().width > 0);

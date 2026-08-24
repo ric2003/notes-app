@@ -625,88 +625,111 @@ export default function UserProfiles({
       {/* Auth popover */}
       {!user && showAuthForm && (
         <div
-          className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)_+_4rem)] bottom-[max(0.75rem,env(safe-area-inset-bottom))] overflow-y-auto touch-pan-y bg-white/98 backdrop-blur-xl border border-white/70 rounded-2xl shadow-xl p-5 z-50 animate-scale-in sm:absolute sm:inset-x-auto sm:top-14 sm:right-0 sm:bottom-auto sm:w-80 sm:max-h-[calc(100dvh-5rem)]"
+          className="fixed inset-0 z-[100] overflow-y-auto touch-pan-y bg-slate-50/98 px-5 sm:absolute sm:inset-auto sm:top-14 sm:right-0 sm:z-50 sm:w-80 sm:max-h-[calc(100dvh-5rem)] sm:rounded-2xl sm:border sm:border-white/60 sm:bg-white/95 sm:p-5 sm:shadow-xl sm:backdrop-blur-xl"
           role="dialog"
           aria-modal="true"
           aria-label="Account access"
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-semibold text-gray-900">
-              {authMode === "login" ? "Welcome back" : "Join the board"}
-            </span>
-            <button
-              onClick={() => setShowAuthForm(false)}
-              className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1">
-            <button
-              onClick={() => setAuthMode("login")}
-              className={`min-h-11 flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "login" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              Login
-            </button>
-            <button
-              onClick={() => setAuthMode("signup")}
-              className={`min-h-11 flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${authMode === "signup" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              Sign Up
-            </button>
-          </div>
-          <div className="flex flex-col gap-2">
-            <input
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              aria-label="Email address"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            <input
-              type="password"
-              autoComplete={
-                authMode === "login" ? "current-password" : "new-password"
-              }
-              aria-label="Password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitAuth();
-              }}
-              className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            {errorMessage && (
-              <div className="text-xs text-red-600 mt-1" role="alert">
-                {errorMessage}
+          <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:block sm:min-h-0 sm:max-w-none sm:p-0">
+            <div className="mb-5 text-center sm:hidden">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-900 text-white shadow-lg">
+                <UserIcon className="h-6 w-6" />
               </div>
-            )}
-            <button
-              onClick={submitAuth}
-              disabled={isSubmitting}
-              className="min-h-11 mt-1 w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black transition-colors disabled:opacity-50"
-            >
-              {authMode === "login" ? "Log In" : "Create Account"}
-            </button>
-            <div className="relative my-2">
-              <div className="w-full h-px bg-gray-200" />
-              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
-                or
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+                Live Notes
+              </h1>
+              <p className="mt-1 text-sm text-gray-500">
+                Sign in to write, star, and share notes.
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-xl sm:contents">
+              <div className="mb-4 flex items-start justify-between sm:mb-3 sm:items-center">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 sm:text-sm">
+                    {authMode === "login" ? "Welcome back" : "Join the board"}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500 sm:hidden">
+                    {authMode === "login"
+                      ? "Use your account to continue."
+                      : "Create an account in a few seconds."}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAuthForm(false)}
+                  className="-mr-1 flex min-h-11 min-w-11 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 sm:min-h-8 sm:min-w-8 sm:rounded-lg"
+                  aria-label="Close account access"
+                >
+                  <X className="h-5 w-5 sm:h-4 sm:w-4" />
+                </button>
+              </div>
+              <div className="mb-4 flex items-center gap-1 rounded-xl bg-gray-100 p-1">
+                <button
+                  onClick={() => setAuthMode("login")}
+                  className={`min-h-11 flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 ${authMode === "login" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => setAuthMode("signup")}
+                  className={`min-h-11 flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 ${authMode === "signup" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Sign Up
+                </button>
+              </div>
+              <div className="flex flex-col gap-3 sm:gap-2">
+                <input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  aria-label="Email address"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                <input
+                  type="password"
+                  autoComplete={
+                    authMode === "login" ? "current-password" : "new-password"
+                  }
+                  aria-label="Password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitAuth();
+                  }}
+                  className="min-h-12 pointer-fine:min-h-11 w-full px-3 py-2 border border-gray-200 rounded-lg text-base pointer-fine:text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                {errorMessage && (
+                  <div className="text-xs text-red-600 mt-1" role="alert">
+                    {errorMessage}
+                  </div>
+                )}
+                <button
+                  onClick={submitAuth}
+                  disabled={isSubmitting}
+                  className="mt-1 min-h-12 w-full rounded-xl bg-gray-900 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-black disabled:opacity-50 pointer-fine:min-h-11"
+                >
+                  {authMode === "login" ? "Log In" : "Create Account"}
+                </button>
+                <div className="relative my-2">
+                  <div className="w-full h-px bg-gray-200" />
+                  <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[11px] text-gray-500">
+                    or
+                  </div>
+                </div>
+                <button
+                  onClick={signInWithGoogle}
+                  disabled={isSubmitting}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-50 disabled:opacity-50 pointer-fine:min-h-11"
+                >
+                  <GoogleIcon />
+                  <span>Continue with Google</span>
+                </button>
               </div>
             </div>
-            <button
-              onClick={signInWithGoogle}
-              disabled={isSubmitting}
-              className="min-h-11 w-full px-3 py-2 border border-gray-300 text-gray-800 bg-white rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <GoogleIcon />
-              <span>Continue with Google</span>
-            </button>
           </div>
         </div>
       )}
