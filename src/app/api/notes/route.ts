@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeNotesCollection } from "@/lib/notes";
+import { normalizeNotesCollection, normalizeUserPhotoUrl } from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,6 +11,7 @@ type CreateNotePayload = {
   position_y?: number;
   user_id?: string | null;
   user_name?: string | null;
+  user_photo_url?: string | null;
 };
 
 type NoteRecord = {
@@ -20,6 +21,7 @@ type NoteRecord = {
   position_y: number;
   user_id?: string | null;
   user_name?: string | null;
+  user_photo_url?: string | null;
   created_at?: number;
   edited_at?: number;
   stars?: Record<string, boolean>;
@@ -84,6 +86,7 @@ export async function POST(req: Request) {
       position_y: typeof body.position_y === "number" ? body.position_y : 0,
       user_id: body.user_id ?? null,
       user_name: body.user_name ?? null,
+      user_photo_url: normalizeUserPhotoUrl(body.user_photo_url) ?? null,
       created_at: { ".sv": "timestamp" },
       edited_at: { ".sv": "timestamp" },
     };
@@ -126,6 +129,7 @@ export async function POST(req: Request) {
           position_y: d.position_y ?? 0,
           user_id: d.user_id ?? undefined,
           user_name: d.user_name ?? undefined,
+          user_photo_url: normalizeUserPhotoUrl(d.user_photo_url),
           created_at: createdIso,
           edited_at: editedIso,
           stars: d.stars ?? undefined,

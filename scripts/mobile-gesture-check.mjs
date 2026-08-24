@@ -489,6 +489,7 @@ async function runMobileLayoutChecks(client) {
       const note = document.querySelector('[data-note-id="mobile-gesture-fixture"]');
       const createButton = document.querySelector('[aria-label="Create note"]');
       const accountButton = document.querySelector('[aria-label="Sign in"]');
+      const authorAvatar = note.querySelector('[data-note-author-avatar]');
       const sizes = [
         createButton,
         accountButton,
@@ -499,7 +500,12 @@ async function runMobileLayoutChecks(client) {
         return { width: rect.width, height: rect.height };
       });
       accountButton.click();
-      return { sizes, zoomButtonCount: zoomControls.querySelectorAll('button').length };
+      return {
+        sizes,
+        zoomButtonCount: zoomControls.querySelectorAll('button').length,
+        authorAvatar: authorAvatar?.dataset.noteAuthorAvatar,
+        authorBackground: authorAvatar && getComputedStyle(authorAvatar).backgroundImage,
+      };
     })()`,
   });
 
@@ -544,6 +550,12 @@ async function runMobileLayoutChecks(client) {
     throw new Error(
       `mobile controls include a ${smallestTarget.toFixed(1)}px touch target`,
     );
+  }
+  if (
+    controls.authorAvatar !== "photo" ||
+    !controls.authorBackground?.includes("googleusercontent.com")
+  ) {
+    throw new Error("signed-in note did not render its profile photo");
   }
   if (
     Math.abs(dialog.rect.left) > 0.5 ||
@@ -773,6 +785,7 @@ async function main() {
         "*firebasedatabase.app/*",
         "*firebaseapp.com/*",
         "*googleapis.com/*",
+        "*googleusercontent.com/*",
       ],
     });
     await client.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -784,6 +797,7 @@ async function main() {
         position_y: 180,
         created_at: '2026-01-01T00:00:00.000Z',
         user_name: 'Test user',
+        user_photo_url: 'https://lh3.googleusercontent.com/a/test-avatar',
       }];`,
     });
     await client.send("Emulation.setDeviceMetricsOverride", {

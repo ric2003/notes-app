@@ -7,6 +7,7 @@ export interface NoteData {
   created_at?: string;
   user_id?: string;
   user_name?: string;
+  user_photo_url?: string;
   edited_at?: string;
   stars?: Record<string, boolean>;
 }
@@ -31,6 +32,16 @@ function normalizeStars(value: unknown): Record<string, boolean> | undefined {
     }),
   );
   return Object.keys(stars).length > 0 ? stars : undefined;
+}
+
+export function normalizeUserPhotoUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function isReservedNoteId(id: string) {
@@ -74,6 +85,7 @@ export function normalizeNoteRecord(
     user_id: typeof value.user_id === "string" ? value.user_id : undefined,
     user_name:
       typeof value.user_name === "string" ? value.user_name : undefined,
+    user_photo_url: normalizeUserPhotoUrl(value.user_photo_url),
     stars: normalizeStars(value.stars),
   };
 }

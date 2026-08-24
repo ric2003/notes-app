@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   isReservedNoteId,
   normalizeNotesCollection,
+  normalizeUserPhotoUrl,
 } from "../src/lib/notes.ts";
 
 test("presence and malformed records never become canvas notes", () => {
@@ -49,4 +50,16 @@ test("normalization removes invalid stars and converts timestamps", () => {
 
   assert.equal(note.created_at, "2023-11-14T22:13:20.000Z");
   assert.deepEqual(note.stars, { alice: true });
+});
+
+test("profile photos accept secure URLs only", () => {
+  assert.equal(
+    normalizeUserPhotoUrl("https://lh3.googleusercontent.com/a/avatar"),
+    "https://lh3.googleusercontent.com/a/avatar",
+  );
+  assert.equal(
+    normalizeUserPhotoUrl("http://example.com/avatar.png"),
+    undefined,
+  );
+  assert.equal(normalizeUserPhotoUrl("not a url"), undefined);
 });

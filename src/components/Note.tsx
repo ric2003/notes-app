@@ -25,6 +25,7 @@ export interface NoteProps {
   className?: string;
   createdAt?: string;
   createdBy?: string;
+  createdByPhoto?: string;
   editedAt?: string;
   isStarred?: boolean;
   starCount?: number;
@@ -44,6 +45,7 @@ const Note: React.FC<NoteProps> = ({
   className = "",
   createdAt,
   createdBy = "Anonymous",
+  createdByPhoto,
   editedAt,
   isStarred = false,
   starCount = 0,
@@ -394,10 +396,21 @@ const Note: React.FC<NoteProps> = ({
 
         {/* User */}
         <div className="flex items-center gap-2 bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm px-2.5 py-1">
-          <div className="w-5 h-5 rounded-lg bg-indigo-400 flex items-center justify-center shadow-sm">
-            <span className="font-semibold text-white text-[10px]">
-              {createdBy.charAt(0).toUpperCase()}
-            </span>
+          <div
+            className={`flex h-5 w-5 items-center justify-center overflow-hidden shadow-sm ${createdByPhoto ? "rounded-full bg-cover bg-center" : "rounded-lg bg-indigo-400"}`}
+            style={
+              createdByPhoto
+                ? { backgroundImage: `url(${JSON.stringify(createdByPhoto)})` }
+                : undefined
+            }
+            aria-hidden="true"
+            data-note-author-avatar={createdByPhoto ? "photo" : "initial"}
+          >
+            {!createdByPhoto && (
+              <span className="text-[10px] font-semibold text-white">
+                {createdBy.charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
           <span className="text-gray-500 font-medium truncate text-[11px] max-w-20">
             {createdBy}

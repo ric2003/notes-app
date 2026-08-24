@@ -645,7 +645,7 @@ export default function UserProfiles({
                 Live Notes
               </h1>
               <p className="mt-1 text-sm text-gray-500">
-                Sign in to write, star, and share notes.
+                Start notes and leave your mark.
               </p>
             </div>
 

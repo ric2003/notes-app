@@ -4,19 +4,7 @@ import { useRef, useCallback, useState, useMemo, useEffect } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import Note, { NoteProps } from "@/components/Note";
 import { X, CircleHelp } from "lucide-react";
-
-interface NoteData {
-  id: string;
-  content: string;
-  color: string;
-  position_x: number;
-  position_y: number;
-  created_at?: string;
-  user_id?: string;
-  user_name?: string;
-  edited_at?: string;
-  stars?: Record<string, boolean>;
-}
+import type { NoteData } from "@/lib/notes";
 
 interface NotesCanvasProps {
   notes: NoteData[];
@@ -30,6 +18,7 @@ interface NotesCanvasProps {
   onEditSave: () => void;
   onCanvasPointerDown?: (e: React.PointerEvent) => void;
   currentUserId?: string;
+  currentUserPhoto?: string;
   onToggleStar: (noteId: string) => void;
 }
 
@@ -45,6 +34,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   onEditSave,
   onCanvasPointerDown,
   currentUserId,
+  currentUserPhoto,
   onToggleStar,
 }) => {
   const { zoom, panX, panY, isAnimating } = useZoom();
@@ -216,6 +206,10 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             onColorChange={onColorChange}
             createdAt={note.created_at}
             createdBy={note.user_name || note.user_id || "Anonymous"}
+            createdByPhoto={
+              note.user_photo_url ||
+              (note.user_id === currentUserId ? currentUserPhoto : undefined)
+            }
             editedAt={note.edited_at}
             isStarred={Boolean(
               currentUserId && note.stars && note.stars[currentUserId],
@@ -236,6 +230,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       onEditSave,
       onColorChange,
       currentUserId,
+      currentUserPhoto,
       onToggleStar,
     ],
   );

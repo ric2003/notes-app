@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { isReservedNoteId, normalizeNoteRecord } from "@/lib/notes";
+import {
+  isReservedNoteId,
+  normalizeNoteRecord,
+  normalizeUserPhotoUrl,
+} from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,6 +15,7 @@ type NoteRecord = {
   position_y: number;
   user_id?: string | null;
   user_name?: string | null;
+  user_photo_url?: string | null;
   created_at?: number;
   edited_at?: number;
   stars?: Record<string, boolean>;
@@ -81,6 +86,7 @@ export async function PATCH(req: Request, context: unknown) {
       position_y: number;
       user_id: string | null;
       user_name: string | null;
+      user_photo_url: string | null;
       edited_at: string | boolean; // ignored, server managed
     }>;
 
@@ -95,6 +101,13 @@ export async function PATCH(req: Request, context: unknown) {
       updates.user_id = body.user_id;
     if (typeof body.user_name === "string" || body.user_name === null)
       updates.user_name = body.user_name;
+    if (
+      typeof body.user_photo_url === "string" ||
+      body.user_photo_url === null
+    ) {
+      updates.user_photo_url =
+        normalizeUserPhotoUrl(body.user_photo_url) ?? null;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
@@ -144,6 +157,7 @@ export async function PATCH(req: Request, context: unknown) {
         position_y: d.position_y ?? 0,
         user_id: d.user_id ?? undefined,
         user_name: d.user_name ?? undefined,
+        user_photo_url: normalizeUserPhotoUrl(d.user_photo_url),
         created_at: createdIso,
         edited_at: editedIso,
         stars: d.stars ?? undefined,

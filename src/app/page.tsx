@@ -129,6 +129,7 @@ function HomeContent() {
       position_y: worldCoords.y - CANVAS_NOTE_HEIGHT / 2,
       user_id: user?.uid ?? null,
       user_name: user?.displayName || user?.email || null,
+      user_photo_url: user?.photoURL ?? null,
     };
     // Queue up a different shade for the note after this one
     setNextColor(pickRandomColor());
@@ -379,6 +380,7 @@ function HomeContent() {
           onEditSave={() => setEditingNote(null)}
           onCanvasPointerDown={handleCanvasPointerDown}
           currentUserId={user?.uid || undefined}
+          currentUserPhoto={user?.photoURL || undefined}
           onToggleStar={toggleStar}
         />
       </div>
