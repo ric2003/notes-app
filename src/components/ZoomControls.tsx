@@ -7,11 +7,13 @@ import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from "@/lib/canvas-geometry";
 interface ZoomControlsProps {
   notes: Array<{ position_x: number; position_y: number }>;
   className?: string;
+  compactOnNarrowScreens?: boolean;
 }
 
 const ZoomControls: React.FC<ZoomControlsProps> = ({
   notes,
   className = "",
+  compactOnNarrowScreens = false,
 }) => {
   const { zoom, zoomIn, zoomOut, resetZoom, fitToContent } = useZoom();
 
@@ -36,7 +38,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
       </button>
 
       <div
-        className="py-1.5 text-sm font-medium text-gray-600 min-w-[48px] text-center tabular-nums"
+        className={`${compactOnNarrowScreens ? "hidden min-[375px]:block" : ""} min-w-[48px] py-1.5 text-center text-sm font-medium text-gray-600 tabular-nums`}
         aria-live="polite"
       >
         {Math.round(zoom * 100)}%

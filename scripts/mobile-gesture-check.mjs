@@ -564,15 +564,32 @@ async function runMobileLayoutChecks(client) {
       expression: `(() => {
         document.querySelector('[aria-label="Close sign in"]')?.click();
         const button = document.querySelector('[aria-label="Open board minimap"]');
-        if (!button) return null;
+        const zoom = [...document.querySelectorAll('[aria-label="Canvas zoom controls"]')]
+          .find((element) => element.getBoundingClientRect().width > 0);
+        if (!button || !zoom) return null;
         const rect = button.getBoundingClientRect();
+        const zoomRect = zoom.getBoundingClientRect();
         button.click();
-        return { width: rect.width, height: rect.height };
+        return {
+          width: rect.width,
+          height: rect.height,
+          left: rect.left,
+          bottom: rect.bottom,
+          zoomRight: zoomRect.right,
+          zoomBottom: zoomRect.bottom,
+        };
       })()`,
     },
   );
   const button = minimapButtonResult.value;
-  if (!button || button.width < 43.5 || button.height < 43.5) {
+  if (
+    !button ||
+    button.width < 43.5 ||
+    button.height < 43.5 ||
+    button.left - button.zoomRight < 4 ||
+    button.left - button.zoomRight > 12 ||
+    Math.abs(button.bottom - button.zoomBottom) > 1
+  ) {
     throw new Error(
       `mobile minimap toggle is unavailable or too small: ${JSON.stringify(button)}`,
     );
@@ -583,13 +600,16 @@ async function runMobileLayoutChecks(client) {
       returnByValue: true,
       expression: `(() => {
         const map = document.querySelector('[data-mobile-minimap]');
-        if (!map) return null;
+        const button = document.querySelector('[aria-label="Close board minimap"]');
+        if (!map || !button) return null;
         const rect = map.getBoundingClientRect();
+        const buttonRect = button.getBoundingClientRect();
         return {
           left: rect.left,
           top: rect.top,
           right: rect.right,
           bottom: rect.bottom,
+          buttonTop: buttonRect.top,
           viewport: { width: innerWidth, height: innerHeight },
         };
       })()`,
@@ -601,13 +621,14 @@ async function runMobileLayoutChecks(client) {
     minimap.left < 0 ||
     minimap.top < 0 ||
     minimap.right > minimap.viewport.width ||
-    minimap.bottom > minimap.viewport.height
+    minimap.bottom > minimap.viewport.height ||
+    minimap.bottom > minimap.buttonTop
   ) {
     throw new Error(
       `mobile minimap is unavailable or clipped: ${JSON.stringify(minimap)}`,
     );
   }
-  console.log("PASS: compact mobile minimap opens inside the viewport");
+  console.log("PASS: mobile minimap sits beside the zoom bar and opens upward");
 
   await client.send("Emulation.setDeviceMetricsOverride", {
     ...viewport,

@@ -28,10 +28,7 @@ export default function MobileMiniMap({ notes }: MobileMiniMapProps) {
   if (notes.length === 0) return null;
 
   return (
-    <div
-      className="pointer-fine:hidden absolute left-3 z-50 prevent-zoom"
-      style={{ top: "calc(env(safe-area-inset-top) + 5rem)" }}
-    >
+    <div className="relative shrink-0 pointer-fine:hidden prevent-zoom">
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
@@ -43,7 +40,10 @@ export default function MobileMiniMap({ notes }: MobileMiniMapProps) {
       </button>
 
       {isOpen && (
-        <div className="mt-2 animate-scale-in" data-mobile-minimap>
+        <div
+          className="absolute right-0 bottom-full mb-2 animate-scale-in"
+          data-mobile-minimap
+        >
           <MiniMap notes={notes} />
         </div>
       )}

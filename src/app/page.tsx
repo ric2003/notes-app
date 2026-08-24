@@ -428,13 +428,12 @@ function HomeContent() {
         <MiniMap notes={notes} />
       </div>
 
-      <MobileMiniMap notes={notes} />
-
       <div
-        className="md:pointer-fine:hidden absolute left-1/2 -translate-x-1/2 z-50 prevent-zoom"
+        className="md:pointer-fine:hidden absolute inset-x-3 z-50 flex items-end justify-center gap-2 prevent-zoom"
         style={{ bottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
-        <ZoomControls notes={notes} />
+        <ZoomControls notes={notes} compactOnNarrowScreens />
+        <MobileMiniMap notes={notes} />
       </div>
 
       <div
