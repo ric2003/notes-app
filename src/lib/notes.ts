@@ -5,6 +5,10 @@ export interface NoteData {
   position_x: number;
   position_y: number;
   created_at?: string;
+  author_id?: string;
+  author_username_snapshot?: string;
+  author_photo_snapshot?: string;
+  // Legacy attribution fields remain readable during the schema migration.
   user_id?: string;
   user_name?: string;
   user_photo_url?: string;
@@ -98,6 +102,21 @@ export function normalizeNoteRecord(
     position_y: positionY,
     created_at: createdAt,
     edited_at: editedAt,
+    author_id:
+      typeof value.author_id === "string"
+        ? value.author_id
+        : typeof value.user_id === "string"
+          ? value.user_id
+          : undefined,
+    author_username_snapshot:
+      typeof value.author_username_snapshot === "string"
+        ? value.author_username_snapshot
+        : typeof value.user_name === "string"
+          ? value.user_name
+          : undefined,
+    author_photo_snapshot:
+      normalizeUserPhotoUrl(value.author_photo_snapshot) ??
+      normalizeUserPhotoUrl(value.user_photo_url),
     user_id: typeof value.user_id === "string" ? value.user_id : undefined,
     user_name:
       typeof value.user_name === "string" ? value.user_name : undefined,

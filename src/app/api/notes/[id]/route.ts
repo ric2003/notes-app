@@ -8,30 +8,6 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type NoteRecord = {
-  content: string;
-  color: string;
-  position_x: number;
-  position_y: number;
-  user_id?: string | null;
-  user_name?: string | null;
-  user_photo_url?: string | null;
-  created_at?: number;
-  edited_at?: number;
-  stars?: Record<string, boolean>;
-};
-
-function toIsoStringFromMaybeNumber(value: unknown): string | undefined {
-  if (typeof value === "number") {
-    try {
-      return new Date(value).toISOString();
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
 function buildDbUrl(path: string): string {
   const base = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || "";
   const normalized = base.endsWith("/") ? base : `${base}/`;
@@ -97,6 +73,7 @@ export async function PATCH(req: Request, context: unknown) {
       updates.position_x = body.position_x;
     if (typeof body.position_y === "number")
       updates.position_y = body.position_y;
+    // Legacy fields remain writable for pending updates from older clients.
     if (typeof body.user_id === "string" || body.user_id === null)
       updates.user_id = body.user_id;
     if (typeof body.user_name === "string" || body.user_name === null)
@@ -143,26 +120,10 @@ export async function PATCH(req: Request, context: unknown) {
         `RTDB GET after PATCH failed with status ${readRes.status}`,
       );
     }
-    const d = ((await readRes.json()) || {}) as Partial<NoteRecord>;
-    const createdIso =
-      toIsoStringFromMaybeNumber(d.created_at) ?? new Date().toISOString();
-    const editedIso = toIsoStringFromMaybeNumber(d.edited_at) ?? createdIso;
+    const note = normalizeNoteRecord(id, await readRes.json());
+    if (!note) throw new Error("RTDB returned an invalid note");
 
-    return NextResponse.json({
-      note: {
-        id,
-        content: d.content ?? "",
-        color: d.color ?? "blue",
-        position_x: d.position_x ?? 0,
-        position_y: d.position_y ?? 0,
-        user_id: d.user_id ?? undefined,
-        user_name: d.user_name ?? undefined,
-        user_photo_url: normalizeUserPhotoUrl(d.user_photo_url),
-        created_at: createdIso,
-        edited_at: editedIso,
-        stars: d.stars ?? undefined,
-      },
-    });
+    return NextResponse.json({ note });
   } catch (error: unknown) {
     return NextResponse.json(
       {

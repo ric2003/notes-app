@@ -53,6 +53,41 @@ test("normalization removes invalid stars and converts timestamps", () => {
   assert.deepEqual(note.stars, { alice: true });
 });
 
+test("normalization reads the new author schema and legacy fallbacks", () => {
+  const [current] = normalizeNotesCollection({
+    current: {
+      content: "New schema",
+      color: "green",
+      position_x: 10,
+      position_y: 20,
+      author_id: "user-1",
+      author_username_snapshot: "ric_2003",
+      author_photo_snapshot: "https://example.com/current.png",
+    },
+  });
+  const [legacy] = normalizeNotesCollection({
+    legacy: {
+      content: "Old schema",
+      color: "pink",
+      position_x: 30,
+      position_y: 40,
+      user_id: "user-2",
+      user_name: "legacy_name",
+      user_photo_url: "https://example.com/legacy.png",
+    },
+  });
+
+  assert.equal(current.author_id, "user-1");
+  assert.equal(current.author_username_snapshot, "ric_2003");
+  assert.equal(
+    current.author_photo_snapshot,
+    "https://example.com/current.png",
+  );
+  assert.equal(legacy.author_id, "user-2");
+  assert.equal(legacy.author_username_snapshot, "legacy_name");
+  assert.equal(legacy.author_photo_snapshot, "https://example.com/legacy.png");
+});
+
 test("profile photos accept secure URLs only", () => {
   assert.equal(
     normalizeUserPhotoUrl("https://lh3.googleusercontent.com/a/avatar"),

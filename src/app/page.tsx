@@ -4,24 +4,19 @@ import { useState, useEffect, useRef } from "react";
 import { ref, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import UserProfiles from "@/components/UserProfiles";
+import { ProfileProvider, useProfile } from "@/contexts/ProfileContext";
 import { ZoomProvider } from "@/contexts/ZoomContext";
 import NotesCanvas from "@/components/NotesCanvas";
 import ZoomControls from "@/components/ZoomControls";
 import MiniMap from "@/components/MiniMap";
 import MobileMiniMap from "@/components/MobileMiniMap";
 import { PlusIcon, AlertTriangle, CheckCircle, Info } from "lucide-react";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged, User } from "firebase/auth";
 import {
   NOTE_COLORS,
   NOTE_COLOR_NAMES,
   type NoteColorName,
 } from "@/lib/noteColors";
-import {
-  getProfilePhotoBackfills,
-  normalizeNotesCollection,
-  type NoteData,
-} from "@/lib/notes";
+import { normalizeNotesCollection, type NoteData } from "@/lib/notes";
 import { CANVAS_NOTE_HEIGHT, CANVAS_NOTE_WIDTH } from "@/lib/canvas-geometry";
 import { saveNoteUpdate } from "@/lib/note-client";
 import { useCanvasGestures } from "@/hooks/useCanvasGestures";
@@ -44,7 +39,7 @@ function HomeContent() {
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [, setLastActivity] = useState(Date.now());
-  const [user, setUser] = useState<User | null>(null);
+  const { user, profile, profiles } = useProfile();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const isCreatingRef = useRef(false);
@@ -103,21 +98,6 @@ function HomeContent() {
     },
   });
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    const backfills = getProfilePhotoBackfills(notes, user.uid, user.photoURL);
-    for (const { noteId, photoUrl } of backfills) {
-      void updateNote(noteId, { user_photo_url: photoUrl });
-    }
-  }, [notes, updateNote, user]);
-
   function pickRandomColor(): NoteColorName {
     return NOTE_COLOR_NAMES[
       Math.floor(Math.random() * NOTE_COLOR_NAMES.length)
@@ -129,6 +109,10 @@ function HomeContent() {
 
   async function createBox(screenX: number, screenY: number) {
     if (isCreatingRef.current) return;
+    if (user && !profile) {
+      showToast("Choose your username before creating a note.", "warning");
+      return;
+    }
     isCreatingRef.current = true;
     setIsCreating(true);
 
@@ -139,17 +123,19 @@ function HomeContent() {
       // Center the note around the screen/world point
       position_x: worldCoords.x - CANVAS_NOTE_WIDTH / 2,
       position_y: worldCoords.y - CANVAS_NOTE_HEIGHT / 2,
-      user_id: user?.uid ?? null,
-      user_name: user?.displayName || user?.email || null,
-      user_photo_url: user?.photoURL ?? null,
+      author_id: user?.uid ?? null,
     };
     // Queue up a different shade for the note after this one
     setNextColor(pickRandomColor());
 
     try {
+      const authToken = user ? await user.getIdToken() : null;
       const res = await fetch("/api/notes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -392,7 +378,7 @@ function HomeContent() {
           onEditSave={() => setEditingNote(null)}
           onCanvasPointerDown={handleCanvasPointerDown}
           currentUserId={user?.uid || undefined}
-          currentUserPhoto={user?.photoURL || undefined}
+          profiles={profiles}
           onToggleStar={toggleStar}
         />
       </div>
@@ -535,11 +521,13 @@ export default function Home() {
   }, []);
 
   return (
-    <ZoomProvider
-      containerWidth={dimensions.width}
-      containerHeight={dimensions.height}
-    >
-      <HomeContent />
-    </ZoomProvider>
+    <ProfileProvider>
+      <ZoomProvider
+        containerWidth={dimensions.width}
+        containerHeight={dimensions.height}
+      >
+        <HomeContent />
+      </ZoomProvider>
+    </ProfileProvider>
   );
 }

@@ -6,43 +6,68 @@
       ".read": true,
       "$noteId": {
         ".read": true,
-        ".write": true
-      },
-      "presence": {
-        ".read": true,
-        "$id": {
-          ".write": true,
-          ".validate": "newData.hasChildren(['id','name','online','last_changed']) && newData.child('id').val() === $id && newData.child('online').isBoolean()"
-        }
+        ".write": "$noteId !== 'presence'",
+        ".validate": "(data.exists() && newData.child('author_id').val() === data.child('author_id').val() && newData.child('author_username_snapshot').val() === data.child('author_username_snapshot').val() && newData.child('author_photo_snapshot').val() === data.child('author_photo_snapshot').val()) || (!data.exists() && !newData.child('user_id').exists() && !newData.child('user_name').exists() && !newData.child('user_photo_url').exists() && ((!newData.child('author_id').exists() && !newData.child('author_username_snapshot').exists() && !newData.child('author_photo_snapshot').exists()) || (auth != null && newData.child('author_id').val() === auth.uid && newData.child('author_username_snapshot').val() === root.child('profiles').child(auth.uid).child('username').val() && newData.child('author_photo_snapshot').val() === root.child('profiles').child(auth.uid).child('photo_url').val())))"
       }
     },
     "presence": {
       ".read": true,
       "$id": {
         ".write": true,
-        ".validate": "newData.hasChildren(['id','name','online','last_changed']) && newData.child('id').val() === $id && newData.child('online').isBoolean()"
-      }
-    },
-    "users": {
-      "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid",
-        "nickname": {
-          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 50"
+        ".validate": "newData.hasChildren(['id','username','online','last_changed']) && newData.child('id').val() === $id && newData.child('username').isString() && newData.child('username').val().length >= 3 && newData.child('username').val().length <= 24 && (!newData.child('name').exists() || newData.child('name').val() === newData.child('username').val()) && newData.child('online').isBoolean() && !newData.child('email').exists()",
+        "id": {
+          ".validate": "newData.isString() && newData.val() === $id"
         },
-        "email": {
-          ".validate": "newData.val() === auth.token.email"
+        "username": {
+          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 24"
+        },
+        "name": {
+          ".validate": "newData.isString()"
+        },
+        "isAnonymous": {
+          ".validate": "newData.isBoolean()"
+        },
+        "online": {
+          ".validate": "newData.isBoolean()"
         },
         "photoURL": {
-          ".validate": "newData.val() === null || newData.isString()"
+          ".validate": "newData.isString() && newData.val().matches(/^https:\\/\\//)"
+        },
+        "last_changed": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
         }
-      },
-      "byNickname": {
-        ".read": true,
-        "$lower": {
-          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid && newData.val() === null))",
-          ".validate": "newData.val() === auth.uid || newData.val() === null"
+      }
+    },
+    "profiles": {
+      ".read": true,
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid && (!data.exists() || !newData.exists() || newData.child('username').val() === data.child('username').val())",
+        ".validate": "newData.hasChildren(['username','created_at','updated_at']) && root.child('usernames').child(newData.child('username').val()).val() === $uid && !newData.child('email').exists()",
+        "username": {
+          ".validate": "newData.isString() && newData.val().matches(/^[a-z0-9_]{3,24}$/) && newData.val() !== 'admin' && newData.val() !== 'anonymous' && newData.val() !== 'live_notes' && newData.val() !== 'notes' && newData.val() !== 'presence' && newData.val() !== 'system'"
+        },
+        "photo_url": {
+          ".validate": "newData.isString() && newData.val().matches(/^https:\\/\\//)"
+        },
+        "created_at": {
+          ".validate": "newData.isNumber()"
+        },
+        "updated_at": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
         }
+      }
+    },
+    "usernames": {
+      ".read": true,
+      "$username": {
+        ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.val() === auth.uid && newData.val() === auth.uid) || (data.val() === auth.uid && !newData.exists() && !root.child('profiles').child(auth.uid).exists()))",
+        ".validate": "$username.matches(/^[a-z0-9_]{3,24}$/) && $username !== 'admin' && $username !== 'anonymous' && $username !== 'live_notes' && $username !== 'notes' && $username !== 'presence' && $username !== 'system' && newData.val() === auth.uid"
       }
     }
   }

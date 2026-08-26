@@ -32,7 +32,7 @@ export default function MobileMiniMap({ notes }: MobileMiniMapProps) {
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
-        className="group flex h-[58px] w-[58px] items-center justify-center rounded-2xl border border-white/70 bg-white/95 p-1.5 text-gray-600 shadow-lg backdrop-blur-xl focus-visible:outline-2 focus-visible:outline-indigo-500"
+        className="group flex h-14 w-14 items-center justify-center rounded-2xl border border-white/70 bg-white/95 p-1 text-gray-600 shadow-lg backdrop-blur-xl focus-visible:outline-2 focus-visible:outline-indigo-500"
         aria-label={isOpen ? "Close board minimap" : "Open board minimap"}
         aria-expanded={isOpen}
       >

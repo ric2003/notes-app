@@ -5,6 +5,7 @@ import { useZoom } from "@/contexts/ZoomContext";
 import Note, { NoteProps } from "@/components/Note";
 import { X, CircleHelp } from "lucide-react";
 import type { NoteData } from "@/lib/notes";
+import { resolveNoteAuthor, type PublicProfile } from "@/lib/profiles";
 
 interface NotesCanvasProps {
   notes: NoteData[];
@@ -18,7 +19,7 @@ interface NotesCanvasProps {
   onEditSave: () => void;
   onCanvasPointerDown?: (e: React.PointerEvent) => void;
   currentUserId?: string;
-  currentUserPhoto?: string;
+  profiles: Record<string, PublicProfile>;
   onToggleStar: (noteId: string) => void;
 }
 
@@ -34,7 +35,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   onEditSave,
   onCanvasPointerDown,
   currentUserId,
-  currentUserPhoto,
+  profiles,
   onToggleStar,
 }) => {
   const { zoom, panX, panY, isAnimating } = useZoom();
@@ -177,6 +178,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const renderNote = useCallback(
     (note: NoteData) => {
       const isDraggingThis = isDragging === note.id;
+      const author = resolveNoteAuthor(note, profiles);
 
       return (
         <div
@@ -205,11 +207,10 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
             onEditSave={onEditSave}
             onColorChange={onColorChange}
             createdAt={note.created_at}
-            createdBy={note.user_name || note.user_id || "Anonymous"}
-            createdByPhoto={
-              note.user_photo_url ||
-              (note.user_id === currentUserId ? currentUserPhoto : undefined)
+            createdBy={
+              author.isAnonymous ? author.username : `@${author.username}`
             }
+            createdByPhoto={author.photoUrl}
             editedAt={note.edited_at}
             isStarred={Boolean(
               currentUserId && note.stars && note.stars[currentUserId],
@@ -230,7 +231,7 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
       onEditSave,
       onColorChange,
       currentUserId,
-      currentUserPhoto,
+      profiles,
       onToggleStar,
     ],
   );

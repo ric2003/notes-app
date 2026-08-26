@@ -1,6 +1,6 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-It uses Firebase (Firestore) for realtime notes storage.
+It uses Firebase Realtime Database for notes, public profiles, username reservations, and presence. See [docs/schema.md](docs/schema.md) for the data model and migration behavior.
 
 ## Getting Started
 

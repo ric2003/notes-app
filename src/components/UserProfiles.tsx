@@ -4,16 +4,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { UserIcon, LogOut, X } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
+import { UsernameTakenError, useProfile } from "@/contexts/ProfileContext";
+import {
+  getUsernameError,
+  normalizeUsername,
+  suggestUsername,
+} from "@/lib/profiles";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendEmailVerification,
   signOut,
-  onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
-  type User,
 } from "firebase/auth";
 import {
   ref as dbRef,
@@ -26,52 +30,38 @@ import {
 } from "firebase/database";
 
 const PRESENCE_ROOT = "presence";
-const LEGACY_PRESENCE_ROOT = "notes/presence";
 
 type PresenceEntry = {
   id: string;
+  username?: string | null;
+  // Read old records until every active session has reconnected.
   name?: string;
-  email?: string | null;
   isAnonymous?: boolean;
   online?: boolean;
   photoURL?: string | null;
-  username?: string | null;
 };
 
-function presencePath(id: string, legacy = false) {
-  return `${legacy ? LEGACY_PRESENCE_ROOT : PRESENCE_ROOT}/${id}`;
+function presencePath(id: string) {
+  return `${PRESENCE_ROOT}/${id}`;
 }
 
 async function removePresence(id: string) {
-  await Promise.allSettled([
-    remove(dbRef(db, presencePath(id))),
-    remove(dbRef(db, presencePath(id, true))),
-  ]);
+  await remove(dbRef(db, presencePath(id)));
 }
 
 async function updatePresenceStatus(
   id: string,
   updates: Record<string, unknown>,
 ) {
-  try {
-    await update(dbRef(db, presencePath(id)), updates);
-  } catch {
-    await update(dbRef(db, presencePath(id, true)), updates);
-  }
+  await update(dbRef(db, presencePath(id)), updates);
 }
 
 async function establishPresence(
   id: string,
   entry: Omit<PresenceEntry, "id"> & { last_changed: unknown },
 ) {
-  let activeRef = dbRef(db, presencePath(id));
-  try {
-    await set(activeRef, { id, ...entry });
-    void remove(dbRef(db, presencePath(id, true))).catch(() => {});
-  } catch {
-    activeRef = dbRef(db, presencePath(id, true));
-    await set(activeRef, { id, ...entry });
-  }
+  const activeRef = dbRef(db, presencePath(id));
+  await set(activeRef, { id, ...entry });
 
   await onDisconnect(activeRef).update({
     online: false,
@@ -87,7 +77,11 @@ function readPresenceEntries(value: unknown): PresenceEntry[] {
         typeof raw === "object" && raw !== null
           ? (raw as Omit<PresenceEntry, "id">)
           : {};
-      return { id, ...entry };
+      return {
+        id,
+        ...entry,
+        username: entry.username || entry.name || "Anonymous",
+      };
     })
     .filter((entry) => entry.online);
 }
@@ -164,8 +158,7 @@ export default function UserProfiles({
   className = "",
   isConnected = false,
 }: UserProfilesProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isEmailVerified, setIsEmailVerified] = useState<boolean | null>(null);
+  const { user, profile, needsUsername, claimUsername } = useProfile();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<PresenceEntry[]>([]);
   const [showAuthForm, setShowAuthForm] = useState(false);
@@ -174,6 +167,9 @@ export default function UserProfiles({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPresenceList, setShowPresenceList] = useState(false);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
   const presenceRef = useRef<HTMLDivElement | null>(null);
   const prevPresenceIdRef = useRef<string | null>(null);
 
@@ -220,18 +216,16 @@ export default function UserProfiles({
   }, []);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsEmailVerified(currentUser ? currentUser.emailVerified : null);
-      if (currentUser) {
-        setShowAuthForm(false);
-        if (sessionId) {
-          void removePresence(sessionId);
-        }
-      }
-    });
-    return () => unsub();
-  }, [sessionId]);
+    if (!user) return;
+    setShowAuthForm(false);
+    if (sessionId) void removePresence(sessionId).catch(() => {});
+  }, [sessionId, user]);
+
+  useEffect(() => {
+    if (!needsUsername || !user) return;
+    setUsernameInput(suggestUsername(user.displayName, user.email));
+    setUsernameError(null);
+  }, [needsUsername, user]);
 
   // Keep presence up to date in Realtime Database
   useEffect(() => {
@@ -251,15 +245,16 @@ export default function UserProfiles({
     const unsubscribe = onDbValue(connectedRef, (snap) => {
       const isConn = snap.val() === true;
       if (!isConn) return;
+      if (user && !profile) return;
 
       const id = user?.uid ?? sessionId;
-      const name = user?.displayName || user?.email || "Anonymous";
-      const emailVal = user?.email ?? null;
+      const username = profile?.username || "Anonymous";
       void establishPresence(id, {
-        name,
-        email: emailVal,
+        username,
+        // Transitional copy for sessions running the previous rules.
+        name: username,
         isAnonymous: !user,
-        photoURL: user?.photoURL ?? null,
+        photoURL: profile?.photo_url ?? user?.photoURL ?? null,
         online: true,
         last_changed: serverTimestamp(),
       }).catch(() => {});
@@ -272,43 +267,15 @@ export default function UserProfiles({
       unsubscribe();
       // Do not force set offline here; onDisconnect will handle abrupt closes
     };
-  }, [user, sessionId]);
+  }, [profile, user, sessionId]);
 
   // Subscribe to presence list
   useEffect(() => {
-    const sources = {
-      current: new Map<string, PresenceEntry>(),
-      legacy: new Map<string, PresenceEntry>(),
-    };
-    const publish = () => {
-      setOnlineUsers(
-        Array.from(new Map([...sources.legacy, ...sources.current]).values()),
-      );
-    };
-    const subscribe = (root: string, source: keyof typeof sources) =>
-      onDbValue(
-        dbRef(db, root),
-        (snapshot) => {
-          sources[source] = new Map(
-            readPresenceEntries(snapshot.val()).map((entry) => [
-              entry.id,
-              entry,
-            ]),
-          );
-          publish();
-        },
-        () => {
-          sources[source] = new Map();
-          publish();
-        },
-      );
-
-    const unsubscribeCurrent = subscribe(PRESENCE_ROOT, "current");
-    const unsubscribeLegacy = subscribe(LEGACY_PRESENCE_ROOT, "legacy");
-    return () => {
-      unsubscribeCurrent();
-      unsubscribeLegacy();
-    };
+    return onDbValue(
+      dbRef(db, PRESENCE_ROOT),
+      (snapshot) => setOnlineUsers(readPresenceEntries(snapshot.val())),
+      () => setOnlineUsers([]),
+    );
   }, []);
 
   const submitAuth = async () => {
@@ -335,6 +302,7 @@ export default function UserProfiles({
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
+      setShowAuthForm(false);
       setEmail("");
       setPassword("");
     } catch (error: unknown) {
@@ -350,6 +318,7 @@ export default function UserProfiles({
       setErrorMessage(null);
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+      setShowAuthForm(false);
     } catch (err: unknown) {
       const code =
         typeof err === "object" && err !== null && "code" in err
@@ -391,7 +360,34 @@ export default function UserProfiles({
     }
   };
 
-  const displayName = user?.displayName || user?.email || "";
+  const submitUsername = async () => {
+    const username = normalizeUsername(usernameInput);
+    const validationError = getUsernameError(username);
+    if (validationError) {
+      setUsernameError(validationError);
+      return;
+    }
+
+    try {
+      setIsSavingUsername(true);
+      setUsernameError(null);
+      await claimUsername(username);
+    } catch (error) {
+      setUsernameError(
+        error instanceof UsernameTakenError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Couldn't save your username. Please try again.",
+      );
+    } finally {
+      setIsSavingUsername(false);
+    }
+  };
+
+  const currentUsername = profile?.username || "";
+  const profilePhoto = profile?.photo_url || user?.photoURL || undefined;
+  const isEmailVerified = user?.emailVerified ?? null;
 
   // Deterministic pastel color per user id
   const getColorForId = (id: string) => {
@@ -432,7 +428,7 @@ export default function UserProfiles({
           onClick={() =>
             otherUsers.length > 0 && setShowPresenceList((s) => !s)
           }
-          className={`relative items-center hidden lg:flex bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 px-3 py-2 ${
+          className={`relative items-center hidden lg:flex h-14 bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-white/60 px-3 py-2 ${
             otherUsers.length > 0
               ? "cursor-pointer hover:shadow-xl transition-shadow duration-300"
               : "cursor-default"
@@ -452,17 +448,17 @@ export default function UserProfiles({
                 {u.photoURL ? (
                   <img
                     src={u.photoURL}
-                    alt={u.name || "User"}
+                    alt={u.username || "User"}
                     className="w-8 h-8 rounded-xl object-cover border-2 border-emerald-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
-                    title={`${u.name || "Anonymous"} - Online`}
+                    title={`${u.username || "Anonymous"} - Online`}
                   />
                 ) : (
                   <div
                     className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-semibold border-2 border-emerald-400 shadow-sm transition-all duration-200 group-hover:scale-110 group-hover:z-50"
                     style={{ backgroundColor: getColorForId(u.id) }}
-                    title={`${u.name || "Anonymous"} - Online`}
+                    title={`${u.username || "Anonymous"} - Online`}
                   >
-                    {(u.name || "?").charAt(0).toUpperCase()}
+                    {(u.username || "?").charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
@@ -488,7 +484,7 @@ export default function UserProfiles({
           </div>
 
           {showPresenceList && (
-            <div className="absolute top-12 left-0 w-64 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-4 z-50 animate-scale-in">
+            <div className="absolute top-[calc(100%+8px)] left-0 w-64 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl p-4 z-50 animate-scale-in">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-gray-700">
                   Online now
@@ -506,24 +502,26 @@ export default function UserProfiles({
                     {u.photoURL ? (
                       <img
                         src={u.photoURL}
-                        alt={u.name || "User"}
+                        alt={u.username || "User"}
                         className="w-7 h-7 rounded-lg object-cover"
                       />
                     ) : (
                       <div
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-semibold"
                         style={{ backgroundColor: getColorForId(u.id) }}
-                        title={`${u.name || "Anonymous"}`}
+                        title={`${u.username || "Anonymous"}`}
                       >
-                        {(u.name || "?").charAt(0).toUpperCase()}
+                        {(u.username || "?").charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-gray-800 truncate font-medium">
-                        {u.name || "Anonymous"}
+                        {u.isAnonymous
+                          ? "Anonymous"
+                          : `@${u.username || "user"}`}
                       </div>
                       <div className="text-[11px] text-gray-400 truncate">
-                        {u.email || (u.isAnonymous ? "Guest" : "")}
+                        {u.isAnonymous ? "Guest" : "Signed in"}
                       </div>
                     </div>
                     {u.id === myId && (
@@ -542,7 +540,7 @@ export default function UserProfiles({
       {/* User Profile */}
       <div className="flex items-center">
         {/* Combined profile and name container */}
-        <div className="min-h-11 flex items-center bg-white/95 backdrop-blur-xl rounded-2xl shadow-lg border border-white/70 pl-1.5 pr-1.5 sm:pr-3.5 py-1.5">
+        <div className="h-14 flex items-center bg-white/95 backdrop-blur-xl rounded-2xl shadow-lg border border-white/70 pl-1.5 pr-1.5 sm:pr-3.5 py-1.5">
           <div className="relative mr-1.5 sm:mr-3">
             {/* Main avatar with status ring */}
             <div
@@ -550,15 +548,17 @@ export default function UserProfiles({
             >
               <div className="w-8 h-8 rounded-[10px] bg-white flex items-center justify-center overflow-hidden">
                 {user ? (
-                  user.photoURL ? (
+                  profilePhoto ? (
                     <img
-                      src={user.photoURL}
-                      alt={displayName}
+                      src={profilePhoto}
+                      alt={currentUsername || "Account"}
                       className="w-full h-full object-cover"
                     />
                   ) : (
                     <span className="text-gray-700 font-semibold text-sm">
-                      {displayName.charAt(0).toUpperCase()}
+                      {(currentUsername || suggestUsername(null, user.email))
+                        .charAt(0)
+                        .toUpperCase()}
                     </span>
                   )
                 ) : (
@@ -591,7 +591,7 @@ export default function UserProfiles({
           {user ? (
             <div className="flex min-w-0 items-center gap-1 sm:gap-3">
               <span className="hidden md:block max-w-40 truncate text-sm font-medium text-gray-700">
-                {displayName}
+                {currentUsername ? `@${currentUsername}` : "Choose username"}
               </span>
               <button
                 onClick={handleLogout}
@@ -626,7 +626,7 @@ export default function UserProfiles({
       {/* Auth popover */}
       {!user && showAuthForm && (
         <div
-          className="fixed inset-0 z-[100] overflow-y-auto touch-pan-y bg-slate-50/98 px-5 sm:absolute sm:inset-auto sm:top-14 sm:right-0 sm:z-50 sm:w-80 sm:max-h-[calc(100dvh-5rem)] sm:rounded-2xl sm:border sm:border-white/60 sm:bg-white/95 sm:p-5 sm:shadow-xl sm:backdrop-blur-xl"
+          className="fixed inset-0 z-[100] overflow-y-auto touch-pan-y bg-slate-50/98 px-5 sm:absolute sm:inset-auto sm:top-[calc(100%+8px)] sm:right-0 sm:z-50 sm:w-80 sm:max-h-[calc(100dvh-5rem)] sm:rounded-2xl sm:border sm:border-white/60 sm:bg-white/95 sm:p-5 sm:shadow-xl sm:backdrop-blur-xl"
           role="dialog"
           aria-modal="true"
           aria-label="Account access"
@@ -735,6 +735,115 @@ export default function UserProfiles({
                   <span>Continue with Google</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {user && needsUsername && (
+        <div
+          className="fixed inset-0 z-[110] overflow-y-auto touch-pan-y bg-slate-50/98 px-5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose your username"
+        >
+          <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center py-[max(1.5rem,env(safe-area-inset-top))]">
+            <div className="mb-5 text-center">
+              <Image
+                src="/icon.png"
+                alt=""
+                width={64}
+                height={64}
+                className="mx-auto mb-3 h-16 w-16 drop-shadow-lg"
+                aria-hidden="true"
+              />
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+                Choose your username
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                This is the name people will see on your notes and while you are
+                online.
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-xl">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="h-12 w-12 overflow-hidden rounded-2xl bg-indigo-100">
+                  {profilePhoto ? (
+                    <Image
+                      src={profilePhoto}
+                      alt=""
+                      width={48}
+                      height={48}
+                      unoptimized
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-indigo-600">
+                      {(usernameInput || "u").charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    Your public identity
+                  </p>
+                  <p className="truncate text-xs text-gray-500">{user.email}</p>
+                </div>
+              </div>
+
+              <label
+                htmlFor="username"
+                className="mb-1.5 block text-sm font-medium text-gray-700"
+              >
+                Username
+              </label>
+              <div className="flex min-h-12 items-center rounded-xl border border-gray-300 bg-white px-3 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+                <span className="text-gray-400">@</span>
+                <input
+                  id="username"
+                  type="text"
+                  inputMode="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  autoFocus
+                  value={usernameInput}
+                  onChange={(event) => {
+                    setUsernameInput(normalizeUsername(event.target.value));
+                    setUsernameError(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitUsername();
+                  }}
+                  aria-describedby="username-help"
+                  className="min-w-0 flex-1 bg-transparent px-1 py-3 text-base text-gray-900 outline-none"
+                />
+              </div>
+              <p id="username-help" className="mt-2 text-xs text-gray-500">
+                3 to 24 lowercase letters, numbers, or underscores. Usernames
+                are unique and cannot be changed yet.
+              </p>
+              {usernameError && (
+                <p className="mt-2 text-sm text-rose-600" role="alert">
+                  {usernameError}
+                </p>
+              )}
+
+              <button
+                onClick={() => void submitUsername()}
+                disabled={isSavingUsername}
+                className="mt-5 min-h-12 w-full rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-black disabled:opacity-50"
+              >
+                {isSavingUsername ? "Saving..." : "Continue to the board"}
+              </button>
+              <button
+                onClick={handleLogout}
+                disabled={isSavingUsername}
+                className="mt-2 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+              >
+                Sign out
+              </button>
             </div>
           </div>
         </div>

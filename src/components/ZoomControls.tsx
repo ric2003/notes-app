@@ -19,7 +19,7 @@ const ZoomControls: React.FC<ZoomControlsProps> = ({
 
   return (
     <div
-      className={`flex items-center gap-1 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl p-1.5 shadow-lg ${className}`}
+      className={`flex items-center gap-1 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl p-1 h-14 shadow-lg ${className}`}
       aria-label="Canvas zoom controls"
     >
       <button
