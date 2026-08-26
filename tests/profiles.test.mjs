@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  clearCachedProfile,
+  getIdentityState,
   getUsernameError,
   normalizePublicProfiles,
   normalizeUsername,
+  readCachedProfile,
   resolveNoteAuthor,
+  selectCurrentProfile,
   suggestUsername,
+  writeCachedProfile,
 } from "../src/lib/profiles.ts";
 
 test("usernames normalize to one lowercase public name", () => {
@@ -132,4 +137,100 @@ test("legacy author snapshots render when the account ID is missing", () => {
       isAnonymous: false,
     },
   );
+});
+
+test("reload keeps identity loading until auth is known", () => {
+  assert.equal(
+    getIdentityState({
+      isAuthReady: false,
+      isProfilesReady: false,
+      userId: null,
+      profile: null,
+    }),
+    "loading",
+  );
+  assert.equal(
+    getIdentityState({
+      isAuthReady: true,
+      isProfilesReady: true,
+      userId: null,
+      profile: null,
+    }),
+    "signed_out",
+  );
+});
+
+test("cached profile keeps username and photo together during reload", () => {
+  const cached = {
+    id: "user-1",
+    username: "ric20035",
+    photo_url: "https://example.com/cached.png",
+  };
+  const live = {
+    id: "user-1",
+    username: "ric20035",
+    photo_url: "https://example.com/live.png",
+  };
+
+  const duringProfileLoad = selectCurrentProfile({
+    userId: "user-1",
+    profiles: {},
+    isProfilesReady: false,
+    cachedProfile: cached,
+  });
+  assert.deepEqual(duringProfileLoad, cached);
+  assert.equal(
+    getIdentityState({
+      isAuthReady: true,
+      isProfilesReady: false,
+      userId: "user-1",
+      profile: duringProfileLoad,
+    }),
+    "ready",
+  );
+
+  assert.deepEqual(
+    selectCurrentProfile({
+      userId: "user-1",
+      profiles: { "user-1": live },
+      isProfilesReady: true,
+      cachedProfile: cached,
+    }),
+    live,
+  );
+  assert.equal(
+    selectCurrentProfile({
+      userId: "user-1",
+      profiles: {},
+      isProfilesReady: true,
+      cachedProfile: cached,
+    }),
+    null,
+  );
+});
+
+test("profile cache stores only normalized public identity", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+
+  writeCachedProfile(storage, {
+    id: "user-1",
+    username: "ric20035",
+    photo_url: "https://example.com/photo.png",
+  });
+  assert.deepEqual(readCachedProfile(storage, "user-1"), {
+    id: "user-1",
+    username: "ric20035",
+    photo_url: "https://example.com/photo.png",
+    created_at: undefined,
+    updated_at: undefined,
+  });
+  assert.equal(JSON.stringify([...values.values()]).includes("email"), false);
+
+  clearCachedProfile(storage, "user-1");
+  assert.equal(readCachedProfile(storage, "user-1"), null);
 });

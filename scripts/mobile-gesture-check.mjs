@@ -503,6 +503,7 @@ async function runMobileLayoutChecks(client) {
       return {
         sizes,
         zoomButtonCount: zoomControls.querySelectorAll('button').length,
+        createLabel: createButton.innerText.trim(),
         authorAvatar: authorAvatar?.dataset.noteAuthorAvatar,
         authorBackground: authorAvatar && getComputedStyle(authorAvatar).backgroundImage,
       };
@@ -549,6 +550,11 @@ async function runMobileLayoutChecks(client) {
   if (controls.zoomButtonCount !== 4 || smallestTarget < 43.5) {
     throw new Error(
       `mobile controls include a ${smallestTarget.toFixed(1)}px touch target`,
+    );
+  }
+  if (controls.createLabel !== "Note") {
+    throw new Error(
+      `mobile create action is missing its label: ${JSON.stringify(controls.createLabel)}`,
     );
   }
   if (

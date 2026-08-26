@@ -158,7 +158,8 @@ export default function UserProfiles({
   className = "",
   isConnected = false,
 }: UserProfilesProps) {
-  const { user, profile, needsUsername, claimUsername } = useProfile();
+  const { user, profile, identityState, needsUsername, claimUsername } =
+    useProfile();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<PresenceEntry[]>([]);
   const [showAuthForm, setShowAuthForm] = useState(false);
@@ -388,6 +389,7 @@ export default function UserProfiles({
   const currentUsername = profile?.username || "";
   const profilePhoto = profile?.photo_url || user?.photoURL || undefined;
   const isEmailVerified = user?.emailVerified ?? null;
+  const isIdentityLoading = identityState === "loading";
 
   // Deterministic pastel color per user id
   const getColorForId = (id: string) => {
@@ -417,7 +419,7 @@ export default function UserProfiles({
   }, [totalOnline]);
 
   return (
-    <div className={`relative flex items-center gap-2 ${className}`}>
+    <div className={`relative flex min-w-0 items-center gap-2 ${className}`}>
       {/* Users Stack - Online presence */}
       {otherUsers.length > 0 && (
         <div
@@ -538,16 +540,18 @@ export default function UserProfiles({
       )}
 
       {/* User Profile */}
-      <div className="flex items-center">
+      <div className="flex min-w-0 items-center">
         {/* Combined profile and name container */}
-        <div className="h-14 flex items-center bg-white/95 backdrop-blur-xl rounded-2xl shadow-lg border border-white/70 pl-1.5 pr-1.5 sm:pr-3.5 py-1.5">
+        <div className="flex h-14 min-w-0 items-center rounded-2xl border border-white/70 bg-white/95 py-1.5 pl-1.5 pr-1.5 shadow-lg backdrop-blur-xl sm:pr-3.5">
           <div className="relative mr-1.5 sm:mr-3">
             {/* Main avatar with status ring */}
             <div
               className={`relative p-0.5 rounded-xl ${isConnected ? "bg-gradient-to-br from-emerald-400 to-teal-500" : "bg-gradient-to-br from-rose-400 to-red-500"} transition-all duration-300`}
             >
               <div className="w-8 h-8 rounded-[10px] bg-white flex items-center justify-center overflow-hidden">
-                {user ? (
+                {isIdentityLoading ? (
+                  <div className="h-full w-full animate-pulse bg-gray-200" />
+                ) : user ? (
                   profilePhoto ? (
                     <img
                       src={profilePhoto}
@@ -588,9 +592,20 @@ export default function UserProfiles({
           </div>
 
           {/* User name or sign in */}
-          {user ? (
+          {isIdentityLoading ? (
+            <div
+              className="flex min-w-0 items-center gap-1 sm:gap-3"
+              aria-label="Loading account"
+            >
+              <span className="h-3 w-16 animate-pulse rounded-full bg-gray-200" />
+              <span className="h-11 w-11 animate-pulse rounded-xl bg-gray-100" />
+            </div>
+          ) : user ? (
             <div className="flex min-w-0 items-center gap-1 sm:gap-3">
-              <span className="hidden md:block max-w-40 truncate text-sm font-medium text-gray-700">
+              <span
+                className="block max-w-[4.5rem] truncate text-xs font-medium text-gray-700 min-[375px]:max-w-28 sm:text-sm md:max-w-40"
+                data-current-username
+              >
                 {currentUsername ? `@${currentUsername}` : "Choose username"}
               </span>
               <button

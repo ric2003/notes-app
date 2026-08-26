@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -20,9 +21,15 @@ import {
 } from "firebase/database";
 import { auth, db } from "@/lib/firebase";
 import {
+  clearCachedProfile,
+  getIdentityState,
   getUsernameError,
   normalizePublicProfiles,
   normalizeUsername,
+  readCachedProfile,
+  selectCurrentProfile,
+  writeCachedProfile,
+  type IdentityState,
   type PublicProfile,
 } from "@/lib/profiles";
 import { normalizeUserPhotoUrl } from "@/lib/notes";
@@ -40,20 +47,44 @@ type ProfileContextValue = {
   profiles: Record<string, PublicProfile>;
   isAuthReady: boolean;
   isProfilesReady: boolean;
+  identityState: IdentityState;
   needsUsername: boolean;
   claimUsername: (value: string) => Promise<void>;
 };
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
+function getBrowserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Record<string, PublicProfile>>({});
+  const [cachedProfile, setCachedProfile] = useState<PublicProfile | null>(
+    null,
+  );
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isProfilesReady, setIsProfilesReady] = useState(false);
+  const previousUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (currentUser) => {
+      const previousUserId = previousUserIdRef.current;
+      const storage = getBrowserStorage();
+      if (!currentUser && previousUserId && storage) {
+        clearCachedProfile(storage, previousUserId);
+      }
+      setCachedProfile(
+        currentUser && storage
+          ? readCachedProfile(storage, currentUser.uid)
+          : null,
+      );
+      previousUserIdRef.current = currentUser?.uid ?? null;
       setUser(currentUser);
       setIsAuthReady(true);
     });
@@ -74,12 +105,31 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const profile = user ? (profiles[user.uid] ?? null) : null;
+  const liveProfile = user ? (profiles[user.uid] ?? null) : null;
+  const profile = selectCurrentProfile({
+    userId: user?.uid ?? null,
+    profiles,
+    isProfilesReady,
+    cachedProfile,
+  });
+  const identityState = getIdentityState({
+    isAuthReady,
+    isProfilesReady,
+    userId: user?.uid ?? null,
+    profile,
+  });
 
   useEffect(() => {
-    if (!user || !profile) return;
+    if (!liveProfile) return;
+    setCachedProfile(liveProfile);
+    const storage = getBrowserStorage();
+    if (storage) writeCachedProfile(storage, liveProfile);
+  }, [liveProfile]);
+
+  useEffect(() => {
+    if (!user || !liveProfile) return;
     const photoUrl = normalizeUserPhotoUrl(user.photoURL);
-    if (profile.photo_url === photoUrl) return;
+    if (liveProfile.photo_url === photoUrl) return;
 
     void update(ref(db, `profiles/${user.uid}`), {
       photo_url: photoUrl ?? null,
@@ -87,7 +137,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }).catch((error) => {
       console.error("Failed to refresh profile photo:", error);
     });
-  }, [profile, user]);
+  }, [liveProfile, user]);
 
   const claimUsername = useCallback(
     async (value: string) => {
@@ -116,6 +166,15 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       });
+
+      const claimedProfile = {
+        id: user.uid,
+        username,
+        photo_url: normalizeUserPhotoUrl(user.photoURL),
+      };
+      setCachedProfile(claimedProfile);
+      const storage = getBrowserStorage();
+      if (storage) writeCachedProfile(storage, claimedProfile);
     },
     [user],
   );
@@ -127,11 +186,19 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       profiles,
       isAuthReady,
       isProfilesReady,
-      needsUsername:
-        isAuthReady && isProfilesReady && user !== null && profile === null,
+      identityState,
+      needsUsername: identityState === "needs_username",
       claimUsername,
     }),
-    [claimUsername, isAuthReady, isProfilesReady, profile, profiles, user],
+    [
+      claimUsername,
+      identityState,
+      isAuthReady,
+      isProfilesReady,
+      profile,
+      profiles,
+      user,
+    ],
   );
 
   return (

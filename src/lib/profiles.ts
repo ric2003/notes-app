@@ -28,6 +28,16 @@ export type ResolvedNoteAuthor = {
   isAnonymous: boolean;
 };
 
+export type IdentityState =
+  | "loading"
+  | "signed_out"
+  | "needs_username"
+  | "ready";
+
+type ProfileStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+const PROFILE_CACHE_PREFIX = "notesAppPublicProfile:";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -109,6 +119,87 @@ export function normalizePublicProfiles(
       .filter((profile): profile is PublicProfile => profile !== null)
       .map((profile) => [profile.id, profile]),
   );
+}
+
+function profileCacheKey(userId: string): string {
+  return `${PROFILE_CACHE_PREFIX}${userId}`;
+}
+
+export function readCachedProfile(
+  storage: ProfileStorage,
+  userId: string,
+): PublicProfile | null {
+  try {
+    const value = storage.getItem(profileCacheKey(userId));
+    return value ? normalizePublicProfile(userId, JSON.parse(value)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedProfile(
+  storage: ProfileStorage,
+  profile: PublicProfile,
+): void {
+  try {
+    storage.setItem(
+      profileCacheKey(profile.id),
+      JSON.stringify({
+        username: profile.username,
+        photo_url: profile.photo_url,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+      }),
+    );
+  } catch {
+    // The live profile remains authoritative when storage is unavailable.
+  }
+}
+
+export function clearCachedProfile(
+  storage: ProfileStorage,
+  userId: string,
+): void {
+  try {
+    storage.removeItem(profileCacheKey(userId));
+  } catch {
+    // Nothing else needs to happen when storage is unavailable.
+  }
+}
+
+export function selectCurrentProfile({
+  userId,
+  profiles,
+  isProfilesReady,
+  cachedProfile,
+}: {
+  userId: string | null;
+  profiles: Record<string, PublicProfile>;
+  isProfilesReady: boolean;
+  cachedProfile: PublicProfile | null;
+}): PublicProfile | null {
+  if (!userId) return null;
+  const liveProfile = profiles[userId];
+  if (liveProfile) return liveProfile;
+  if (!isProfilesReady && cachedProfile?.id === userId) return cachedProfile;
+  return null;
+}
+
+export function getIdentityState({
+  isAuthReady,
+  isProfilesReady,
+  userId,
+  profile,
+}: {
+  isAuthReady: boolean;
+  isProfilesReady: boolean;
+  userId: string | null;
+  profile: PublicProfile | null;
+}): IdentityState {
+  if (!isAuthReady) return "loading";
+  if (!userId) return "signed_out";
+  if (profile) return "ready";
+  return isProfilesReady ? "needs_username" : "loading";
 }
 
 function safeLegacyUsername(value: unknown): string | undefined {
