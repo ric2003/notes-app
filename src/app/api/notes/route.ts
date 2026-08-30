@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeNoteRecord, normalizeNotesCollection } from "@/lib/notes";
 import { normalizePublicProfile } from "@/lib/profiles";
+import { normalizeNoteSize } from "@/lib/canvas-geometry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,6 +11,8 @@ type CreateNotePayload = {
   color?: string;
   position_x?: number;
   position_y?: number;
+  width?: number;
+  height?: number;
   author_id?: string | null;
 };
 
@@ -18,6 +21,8 @@ type NoteRecord = {
   color: string;
   position_x: number;
   position_y: number;
+  width: number;
+  height: number;
   author_id?: string | null;
   author_username_snapshot?: string | null;
   author_photo_snapshot?: string | null;
@@ -99,6 +104,7 @@ export async function POST(req: Request) {
     }
 
     // Prepare payload with server-resolved timestamps
+    const size = normalizeNoteSize(body.width, body.height);
     const payload: Omit<NoteRecord, "created_at" | "edited_at"> & {
       created_at: { ".sv": "timestamp" };
       edited_at: { ".sv": "timestamp" };
@@ -107,6 +113,8 @@ export async function POST(req: Request) {
       color: body.color ?? "blue",
       position_x: typeof body.position_x === "number" ? body.position_x : 0,
       position_y: typeof body.position_y === "number" ? body.position_y : 0,
+      width: size.width,
+      height: size.height,
       author_id: authorProfile?.id ?? null,
       author_username_snapshot: authorProfile?.username ?? null,
       author_photo_snapshot: authorProfile?.photo_url ?? null,

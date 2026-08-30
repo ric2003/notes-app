@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import {
   calculateContentFit,
+  getNoteBounds,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-geometry";
@@ -26,7 +27,12 @@ interface ZoomContextType {
   zoomOut: () => void;
   resetZoom: () => void;
   fitToContent: (
-    notes: Array<{ position_x: number; position_y: number }>,
+    notes: Array<{
+      position_x: number;
+      position_y: number;
+      width?: number;
+      height?: number;
+    }>,
   ) => void;
   screenToWorld: (screenX: number, screenY: number) => { x: number; y: number };
   worldToScreen: (worldX: number, worldY: number) => { x: number; y: number };
@@ -119,17 +125,21 @@ export const ZoomProvider: React.FC<ZoomProviderProps> = ({
   }, [setZoom, setPan, animateTransition]);
 
   const fitToContent = useCallback(
-    (notes: Array<{ position_x: number; position_y: number }>) => {
+    (
+      notes: Array<{
+        position_x: number;
+        position_y: number;
+        width?: number;
+        height?: number;
+      }>,
+    ) => {
       if (notes.length === 0) {
         resetZoom();
         return;
       }
 
       const fit = calculateContentFit({
-        items: notes.map((note) => ({
-          x: note.position_x,
-          y: note.position_y,
-        })),
+        items: notes.map(getNoteBounds),
         viewportWidth: containerWidth,
         viewportHeight: containerHeight,
       });

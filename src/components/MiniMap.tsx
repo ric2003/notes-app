@@ -3,6 +3,7 @@
 import { useCallback, useRef } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import { NOTE_COLORS, type NoteColorName } from "@/lib/noteColors";
+import { getNoteBounds } from "@/lib/canvas-geometry";
 
 interface MiniMapProps {
   notes: Array<{
@@ -10,11 +11,11 @@ interface MiniMapProps {
     color: string;
     position_x: number;
     position_y: number;
+    width?: number;
+    height?: number;
   }>;
 }
 
-const NOTE_W = 320;
-const NOTE_H = 224;
 const MAP_W = 176;
 const MAP_H = 132;
 // World-space breathing room around the content bounds
@@ -45,10 +46,11 @@ export default function MiniMap({ notes }: MiniMapProps) {
   let maxX = vpX + vpW;
   let maxY = vpY + vpH;
   for (const n of notes) {
-    minX = Math.min(minX, n.position_x);
-    minY = Math.min(minY, n.position_y);
-    maxX = Math.max(maxX, n.position_x + NOTE_W);
-    maxY = Math.max(maxY, n.position_y + NOTE_H);
+    const bounds = getNoteBounds(n);
+    minX = Math.min(minX, bounds.x);
+    minY = Math.min(minY, bounds.y);
+    maxX = Math.max(maxX, bounds.x + bounds.width);
+    maxY = Math.max(maxY, bounds.y + bounds.height);
   }
   minX -= WORLD_PADDING;
   minY -= WORLD_PADDING;
@@ -128,9 +130,10 @@ export default function MiniMap({ notes }: MiniMapProps) {
     >
       {/* Note chips */}
       {notes.map((n) => {
-        const pos = worldToMap(n.position_x, n.position_y);
-        const chipW = Math.max(NOTE_W * scale, 5);
-        const chipH = Math.max(NOTE_H * scale, 4);
+        const bounds = getNoteBounds(n);
+        const pos = worldToMap(bounds.x, bounds.y);
+        const chipW = Math.max(bounds.width * scale, 5);
+        const chipH = Math.max(bounds.height * scale, 4);
         const c = NOTE_COLORS[n.color as NoteColorName];
         return (
           <div

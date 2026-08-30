@@ -472,6 +472,125 @@ async function runSingleFingerChecks(client) {
   console.log("PASS: single-finger canvas pan still works");
 }
 
+async function runNoteResizeChecks(client) {
+  await loadFixture(client);
+  await client.send("Runtime.evaluate", {
+    awaitPromise: true,
+    expression: `(async () => {
+      localStorage.removeItem("notesAppPendingUpdates");
+      const zoomOut = [...document.querySelectorAll('[aria-label="Zoom out"]')]
+        .find((button) => button.getBoundingClientRect().width > 0);
+      zoomOut?.click();
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    })()`,
+  });
+
+  const { result: beforeResult } = await client.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const container = document.querySelector('[data-note-id="mobile-gesture-fixture"]');
+      const card = container?.firstElementChild;
+      const handle = container?.querySelector('[data-note-resize-handle]');
+      const layer = container?.parentElement;
+      if (!container || !card || !handle || !layer) return null;
+      const rect = handle.getBoundingClientRect();
+      return {
+        point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+        width: Number.parseFloat(card.style.width),
+        height: Number.parseFloat(card.style.height),
+        noteTransform: container.style.transform,
+        layerTransform: layer.style.transform,
+        scale: new DOMMatrixReadOnly(getComputedStyle(layer).transform).a,
+      };
+    })()`,
+  });
+  const before = beforeResult.value;
+  if (!before) throw new Error("note resize handle did not render");
+
+  const start = { ...before.point, id: 1 };
+  const end = { x: start.x + 48, y: start.y + 40, id: 1 };
+  await dispatchTouch(client, "touchStart", [start]);
+  await dispatchTouch(client, "touchMove", [end]);
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  await dispatchTouch(client, "touchEnd", []);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const { result: afterResult } = await client.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const container = document.querySelector('[data-note-id="mobile-gesture-fixture"]');
+      const card = container?.firstElementChild;
+      const handle = container?.querySelector('[data-note-resize-handle]');
+      const layer = container?.parentElement;
+      const pending = JSON.parse(localStorage.getItem('notesAppPendingUpdates') || '[]');
+      return {
+        width: Number.parseFloat(card.style.width),
+        height: Number.parseFloat(card.style.height),
+        noteTransform: container.style.transform,
+        layerTransform: layer.style.transform,
+        label: handle.getAttribute('aria-label'),
+        pending,
+      };
+    })()`,
+  });
+  const after = afterResult.value;
+  if (
+    Math.abs(after.width - (before.width + 48 / before.scale)) > 1 ||
+    Math.abs(after.height - (before.height + 40 / before.scale)) > 1
+  ) {
+    throw new Error(
+      `touch resize used the wrong dimensions: ${JSON.stringify({ before, after })}`,
+    );
+  }
+  if (
+    after.noteTransform !== before.noteTransform ||
+    after.layerTransform !== before.layerTransform
+  ) {
+    throw new Error("resizing moved the note or camera");
+  }
+  const pendingSize = after.pending.find(
+    ([noteId]) => noteId === "mobile-gesture-fixture",
+  )?.[1];
+  if (
+    Math.abs((pendingSize?.width ?? 0) - after.width) > 0.01 ||
+    Math.abs((pendingSize?.height ?? 0) - after.height) > 0.01
+  ) {
+    throw new Error(`offline resize was not queued: ${JSON.stringify(after)}`);
+  }
+
+  const { result: keyboardResult } = await client.send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(async () => {
+      const container = document.querySelector('[data-note-id="mobile-gesture-fixture"]');
+      const card = container.firstElementChild;
+      const handle = container.querySelector('[data-note-resize-handle]');
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return {
+        width: Number.parseFloat(card.style.width),
+        height: Number.parseFloat(card.style.height),
+        focused: document.activeElement === handle,
+      };
+    })()`,
+  });
+  if (
+    keyboardResult.value.width !== after.width + 16 ||
+    keyboardResult.value.height !== after.height ||
+    !keyboardResult.value.focused
+  ) {
+    throw new Error(
+      `keyboard resize failed: ${JSON.stringify(keyboardResult.value)}`,
+    );
+  }
+  console.log("PASS: touch and keyboard resize update and queue note dimensions");
+}
+
 async function runMobileLayoutChecks(client) {
   await client.send("Emulation.setDeviceMetricsOverride", {
     width: 320,
@@ -817,6 +936,7 @@ async function main() {
     });
     await runMobileLayoutChecks(client);
     await runLandscapeTouchLayoutChecks(client);
+    await runNoteResizeChecks(client);
     await runSingleFingerChecks(client);
     await runTwoToOneSuppressionCheck(client);
     await runScenario(client, {

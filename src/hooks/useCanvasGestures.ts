@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type Dispatch,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   type SetStateAction,
@@ -12,12 +14,15 @@ import {
 } from "react";
 import { useZoom } from "@/contexts/ZoomContext";
 import {
+  calculateNoteResize,
   calculatePinchTransform,
+  clampNoteSize,
   distanceBetween,
   MAX_CANVAS_ZOOM,
   midpointBetween,
   MIN_CANVAS_ZOOM,
   type CanvasPoint,
+  type NoteSize,
 } from "@/lib/canvas-geometry";
 import type { NoteData } from "@/lib/notes";
 
@@ -26,9 +31,11 @@ type UseCanvasGesturesOptions = {
   setNotes: Dispatch<SetStateAction<NoteData[]>>;
   editingNote: string | null;
   setEditingNote: Dispatch<SetStateAction<string | null>>;
-  onNoteMove: (
+  onNoteGeometryChange: (
     noteId: string,
-    updates: Pick<NoteData, "position_x" | "position_y">,
+    updates: Partial<
+      Pick<NoteData, "position_x" | "position_y" | "width" | "height">
+    >,
   ) => void;
 };
 
@@ -45,17 +52,19 @@ export function useCanvasGestures({
   setNotes,
   editingNote,
   setEditingNote,
-  onNoteMove,
+  onNoteGeometryChange,
 }: UseCanvasGesturesOptions) {
   const containerRef: RefObject<HTMLDivElement | null> =
     useRef<HTMLDivElement>(null);
   const { zoom, panX, panY, setPan, setZoom } = useZoom();
   const [isDragging, setIsDragging] = useState<string | null>(null);
+  const [isResizing, setIsResizing] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const panStateRef = useRef<CanvasPoint>({ x: 0, y: 0 });
   const zoomStateRef = useRef(1);
   const isPanningRef = useRef(false);
   const isDraggingRef = useRef<string | null>(null);
+  const isResizingRef = useRef<string | null>(null);
   const lastPanPointRef = useRef<CanvasPoint>({ x: 0, y: 0 });
   const dragOffsetRef = useRef<CanvasPoint>({ x: 20, y: 20 });
   const dragStartPositionRef = useRef<{
@@ -68,25 +77,39 @@ export function useCanvasGestures({
     x: number;
     y: number;
   } | null>(null);
+  const resizeStartRef = useRef<{
+    noteId: string;
+    size: NoteSize;
+    pointer: CanvasPoint;
+  } | null>(null);
+  const latestResizeRef = useRef<
+    (NoteSize & { noteId: string }) | null
+  >(null);
   const activeTouchPointersRef = useRef<Map<number, CanvasPoint>>(new Map());
   const pinchGestureRef = useRef<PinchGesture | null>(null);
   const suppressTouchUntilReleaseRef = useRef(false);
   const activePanPointerIdRef = useRef<number | null>(null);
   const activeDragPointerIdRef = useRef<number | null>(null);
+  const activeResizePointerIdRef = useRef<number | null>(null);
   const panCaptureTargetRef = useRef<Element | null>(null);
   const dragCaptureTargetRef = useRef<Element | null>(null);
+  const resizeCaptureTargetRef = useRef<Element | null>(null);
   const pendingPanRef = useRef<CanvasPoint | null>(null);
   const pendingDragRef = useRef<{
     noteId: string;
     x: number;
     y: number;
   } | null>(null);
+  const pendingResizeRef = useRef<
+    (NoteSize & { noteId: string }) | null
+  >(null);
   const pendingPinchRef = useRef<{
     zoom: number;
     pan: CanvasPoint;
   } | null>(null);
   const panRafRef = useRef<number | null>(null);
   const dragRafRef = useRef<number | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
   const pinchRafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -164,6 +187,33 @@ export function useCanvasGestures({
     setIsDragging(null);
   }
 
+  function cancelResize(restoreStart: boolean) {
+    const start = resizeStartRef.current;
+    if (restoreStart && start) {
+      setNotes((previous) =>
+        previous.map((note) =>
+          note.id === start.noteId ? { ...note, ...start.size } : note,
+        ),
+      );
+    }
+
+    releasePointerCapture(
+      resizeCaptureTargetRef.current,
+      activeResizePointerIdRef.current,
+    );
+    if (resizeRafRef.current !== null) {
+      cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = null;
+    }
+    pendingResizeRef.current = null;
+    latestResizeRef.current = null;
+    resizeStartRef.current = null;
+    resizeCaptureTargetRef.current = null;
+    activeResizePointerIdRef.current = null;
+    isResizingRef.current = null;
+    setIsResizing(null);
+  }
+
   function beginPinchGesture() {
     const container = containerRef.current;
     const pointers = [...activeTouchPointersRef.current.entries()].slice(0, 2);
@@ -171,6 +221,7 @@ export function useCanvasGestures({
 
     stopPanning();
     cancelDragForPinch();
+    cancelResize(true);
     suppressTouchUntilReleaseRef.current = true;
 
     const rect = container.getBoundingClientRect();
@@ -352,6 +403,45 @@ export function useCanvasGestures({
       return;
     }
 
+    const resizingNoteId = isResizingRef.current;
+    const resizeStart = resizeStartRef.current;
+    if (
+      resizingNoteId &&
+      resizeStart &&
+      event.pointerId === activeResizePointerIdRef.current &&
+      containerRef.current
+    ) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const pointer = screenToWorld(
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
+      const nextSize = calculateNoteResize({
+        startSize: resizeStart.size,
+        startPointer: resizeStart.pointer,
+        currentPointer: pointer,
+      });
+      const pending = { noteId: resizingNoteId, ...nextSize };
+      pendingResizeRef.current = pending;
+      latestResizeRef.current = pending;
+      if (resizeRafRef.current === null) {
+        resizeRafRef.current = window.requestAnimationFrame(() => {
+          const next = pendingResizeRef.current;
+          if (next) {
+            setNotes((previous) =>
+              previous.map((note) =>
+                note.id === next.noteId
+                  ? { ...note, width: next.width, height: next.height }
+                  : note,
+              ),
+            );
+          }
+          resizeRafRef.current = null;
+        });
+      }
+      return;
+    }
+
     const draggingNoteId = isDraggingRef.current;
     if (
       draggingNoteId &&
@@ -393,6 +483,73 @@ export function useCanvasGestures({
     }
   }
 
+  function handleNoteResizePointerDown(
+    event: ReactPointerEvent,
+    noteId: string,
+  ) {
+    const touchIsPinching =
+      event.pointerType === "touch" &&
+      (activeTouchPointersRef.current.size > 1 ||
+        suppressTouchUntilReleaseRef.current);
+    const isPrimaryButton = event.pointerType === "touch" || event.button === 0;
+    if (touchIsPinching || !isPrimaryButton) return;
+
+    const container = containerRef.current;
+    const note = notes.find((item) => item.id === noteId);
+    if (!container || !note) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    stopPanning();
+    cancelDragForPinch();
+
+    const rect = container.getBoundingClientRect();
+    const pointer = screenToWorld(
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+    );
+    const size = clampNoteSize(note.width, note.height);
+
+    resizeStartRef.current = { noteId, size, pointer };
+    latestResizeRef.current = { noteId, ...size };
+    activeResizePointerIdRef.current = event.pointerId;
+    resizeCaptureTargetRef.current = container;
+    isResizingRef.current = noteId;
+    setIsResizing(noteId);
+    try {
+      container.setPointerCapture(event.pointerId);
+    } catch {}
+  }
+
+  function handleNoteResizeKeyDown(
+    event: ReactKeyboardEvent,
+    noteId: string,
+  ) {
+    const note = notes.find((item) => item.id === noteId);
+    if (!note) return;
+
+    const step = event.shiftKey ? 64 : 16;
+    let width = note.width;
+    let height = note.height;
+    if (event.key === "ArrowLeft") width -= step;
+    else if (event.key === "ArrowRight") width += step;
+    else if (event.key === "ArrowUp") height -= step;
+    else if (event.key === "ArrowDown") height += step;
+    else return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const nextSize = clampNoteSize(width, height);
+    if (nextSize.width === note.width && nextSize.height === note.height) return;
+
+    setNotes((previous) =>
+      previous.map((item) =>
+        item.id === noteId ? { ...item, ...nextSize } : item,
+      ),
+    );
+    onNoteGeometryChange(noteId, nextSize);
+  }
+
   function handlePointerEnd(event: ReactPointerEvent) {
     const endingPinch = pinchGestureRef.current;
     const wasSuppressedTouch =
@@ -423,6 +580,42 @@ export function useCanvasGestures({
         pendingPinchRef.current = null;
       }
       return;
+    }
+
+    const resizingNoteId = isResizingRef.current;
+    if (
+      resizingNoteId &&
+      event.pointerId === activeResizePointerIdRef.current
+    ) {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      const start = resizeStartRef.current;
+      const latest = latestResizeRef.current;
+      const wasCancelled = event.type === "pointercancel";
+
+      if (wasCancelled && start) {
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === start.noteId ? { ...note, ...start.size } : note,
+          ),
+        );
+      } else if (
+        start &&
+        latest &&
+        (latest.width !== start.size.width ||
+          latest.height !== start.size.height)
+      ) {
+        const updates = { width: latest.width, height: latest.height };
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === resizingNoteId ? { ...note, ...updates } : note,
+          ),
+        );
+        onNoteGeometryChange(resizingNoteId, updates);
+      }
+      cancelResize(false);
     }
 
     const draggingNoteId = isDraggingRef.current;
@@ -457,7 +650,7 @@ export function useCanvasGestures({
             note.id === draggingNoteId ? { ...note, ...updates } : note,
           ),
         );
-        onNoteMove(draggingNoteId, updates);
+        onNoteGeometryChange(draggingNoteId, updates);
       }
 
       releasePointerCapture(
@@ -546,6 +739,27 @@ export function useCanvasGestures({
     };
   }
 
+  const mergeWithActiveGeometry = useCallback((incoming: NoteData[]) => {
+    const drag = latestDragPositionRef.current;
+    const resize = latestResizeRef.current;
+    if (!drag && !resize) return incoming;
+
+    return incoming.map((note) => {
+      let merged = note;
+      if (drag?.noteId === note.id) {
+        merged = { ...merged, position_x: drag.x, position_y: drag.y };
+      }
+      if (resize?.noteId === note.id) {
+        merged = {
+          ...merged,
+          width: resize.width,
+          height: resize.height,
+        };
+      }
+      return merged;
+    });
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -577,6 +791,7 @@ export function useCanvasGestures({
       for (const frame of [
         panRafRef.current,
         dragRafRef.current,
+        resizeRafRef.current,
         pinchRafRef.current,
       ]) {
         if (frame !== null) cancelAnimationFrame(frame);
@@ -587,13 +802,17 @@ export function useCanvasGestures({
   return {
     containerRef,
     isDragging,
+    isResizing,
     isPanning,
     handlePointerDownCapture,
     handleNotePointerDown,
+    handleNoteResizePointerDown,
+    handleNoteResizeKeyDown,
     handlePointerMove,
     handlePointerEnd,
     handleCanvasPointerDown,
     handleWheel,
     screenToWorld,
+    mergeWithActiveGeometry,
   };
 }

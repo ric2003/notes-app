@@ -5,7 +5,13 @@ import React, {
   useEffect,
   useMemo,
 } from "react";
-import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
+import {
+  PencilIcon,
+  TrashIcon,
+  Paintbrush,
+  Pen,
+  Star,
+} from "lucide-react";
 import {
   NOTE_COLORS,
   NOTE_COLOR_NAMES,
@@ -15,6 +21,11 @@ import {
 export interface NoteProps {
   id: string;
   content: string;
+  width: number;
+  height: number;
+  isResizing?: boolean;
+  onResizePointerDown?: (e: React.PointerEvent, id: string) => void;
+  onResizeKeyDown?: (e: React.KeyboardEvent, id: string) => void;
   color?: "yellow" | "blue" | "green" | "pink" | "purple" | "orange";
   isEditing?: boolean;
   onEdit?: (id: string) => void;
@@ -35,6 +46,11 @@ export interface NoteProps {
 const Note: React.FC<NoteProps> = ({
   id,
   content,
+  width,
+  height,
+  isResizing = false,
+  onResizePointerDown,
+  onResizeKeyDown,
   color = "blue",
   isEditing = false,
   onEdit,
@@ -250,19 +266,21 @@ const Note: React.FC<NoteProps> = ({
   return (
     <div
       className={`
-        relative w-80 min-h-56 p-5 pt-7 border-2
-        transition-transform duration-200 ease-out
+        group/note relative p-5 pt-7 border-2
+        ${isResizing ? "transition-none" : "transition-transform duration-200 ease-out"}
         ${isHovered ? "shadow-[0_10px_24px_rgba(0,0,0,0.18)]" : "shadow-[0_3px_10px_rgba(0,0,0,0.12)]"}
         ${className}
       `}
       style={{
         backgroundColor: currentStyle.bg,
         borderColor: currentStyle.border,
+        width,
+        height,
         borderRadius: "26px 6px 24px 6px / 6px 24px 6px 26px",
-        transform: isHovered
+        transform: isHovered || isResizing
           ? "rotate(0deg) translateY(-2px)"
           : `rotate(${tiltDeg}deg)`,
-        willChange: isHovered ? "transform" : undefined,
+        willChange: isHovered || isResizing ? "transform" : undefined,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -344,16 +362,16 @@ const Note: React.FC<NoteProps> = ({
       </div>
 
       {/* Note Content */}
-      <div className="mt-14 pointer-fine:mt-10 mb-14">
+      <div className="absolute top-[4.75rem] pointer-fine:top-16 right-5 bottom-14 left-5 min-h-0 overflow-hidden">
         {isEditing ? (
-          <div className="space-y-2">
+          <div className="flex h-full min-h-0 flex-col gap-2">
             <textarea
               ref={textareaRef}
               value={localContent}
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
-              className="w-full h-28 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-base pointer-fine:text-sm placeholder:text-gray-500 transition-all duration-200"
+              className="min-h-0 w-full flex-1 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-base pointer-fine:text-sm placeholder:text-gray-500 transition-all duration-200"
               placeholder="Type your note here..."
             />
             <div className="text-[11px] text-gray-400 font-medium">
@@ -364,7 +382,7 @@ const Note: React.FC<NoteProps> = ({
           </div>
         ) : (
           <p
-            className="text-gray-800 leading-relaxed text-sm line-clamp-5 cursor-pointer hover:text-black transition-colors duration-200"
+            className="h-full overflow-hidden text-gray-800 leading-relaxed text-sm cursor-pointer hover:text-black transition-colors duration-200"
             onClick={handleEdit}
             role="button"
             tabIndex={0}
@@ -380,9 +398,9 @@ const Note: React.FC<NoteProps> = ({
       </div>
 
       {/* Note Footer */}
-      <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
+      <div className="absolute bottom-4 left-4 right-12 flex min-w-0 items-end justify-between gap-2">
         {/* Date */}
-        <div className="flex items-center gap-2 text-[11px] text-gray-600">
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-gray-600">
           <span className="font-medium">{formatDate(createdAt)}</span>
           {editedAt && editedAt !== createdAt && (
             <div className="flex items-center gap-1 bg-white/80 border border-gray-300/60 rounded-lg px-2 py-0.5">
@@ -395,7 +413,7 @@ const Note: React.FC<NoteProps> = ({
         </div>
 
         {/* User */}
-        <div className="flex items-center gap-2 bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm px-2.5 py-1">
+        <div className="flex min-w-0 items-center gap-2 bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm px-2.5 py-1">
           <div
             className={`flex h-5 w-5 items-center justify-center overflow-hidden shadow-sm ${createdByPhoto ? "rounded-full bg-cover bg-center" : "rounded-lg bg-indigo-400"}`}
             style={
@@ -417,6 +435,43 @@ const Note: React.FC<NoteProps> = ({
           </span>
         </div>
       </div>
+
+      {isResizing && (
+        <div
+          className="pointer-events-none absolute -bottom-9 right-6 rounded-lg border border-gray-200 bg-white/95 px-2 py-1 text-[11px] font-medium tabular-nums text-gray-600 shadow-sm"
+          aria-live="polite"
+        >
+          {Math.round(width)} × {Math.round(height)}
+        </div>
+      )}
+
+      <button
+        type="button"
+        data-note-resize-handle
+        className={`absolute right-0 bottom-0 z-20 flex h-11 w-11 touch-none cursor-nwse-resize items-end justify-end rounded-br-[18px] p-2 transition-colors focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-indigo-500 ${
+          isResizing
+            ? "text-indigo-500 opacity-100"
+            : "text-gray-600/55 opacity-60 hover:text-gray-700 focus-visible:text-gray-700 pointer-fine:opacity-0 pointer-fine:group-hover/note:opacity-60"
+        }`}
+        onPointerDown={(event) => onResizePointerDown?.(event, id)}
+        onKeyDown={(event) => onResizeKeyDown?.(event, id)}
+        aria-label={`Resize note. Current size ${Math.round(width)} by ${Math.round(height)} pixels`}
+        title="Drag to resize. Arrow keys resize when focused."
+      >
+        <svg
+          aria-hidden="true"
+          className="h-[18px] w-[18px]"
+          viewBox="0 0 18 18"
+          fill="none"
+        >
+          <path
+            d="M4 15L15 4M9 15L15 9M14 15L15 14"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 };

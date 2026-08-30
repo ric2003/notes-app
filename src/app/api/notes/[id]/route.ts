@@ -4,6 +4,12 @@ import {
   normalizeNoteRecord,
   normalizeUserPhotoUrl,
 } from "@/lib/notes";
+import {
+  MAX_NOTE_HEIGHT,
+  MAX_NOTE_WIDTH,
+  MIN_NOTE_HEIGHT,
+  MIN_NOTE_WIDTH,
+} from "@/lib/canvas-geometry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -60,6 +66,8 @@ export async function PATCH(req: Request, context: unknown) {
       color: string;
       position_x: number;
       position_y: number;
+      width: number;
+      height: number;
       user_id: string | null;
       user_name: string | null;
       user_photo_url: string | null;
@@ -73,6 +81,34 @@ export async function PATCH(req: Request, context: unknown) {
       updates.position_x = body.position_x;
     if (typeof body.position_y === "number")
       updates.position_y = body.position_y;
+    if (body.width !== undefined) {
+      if (
+        typeof body.width !== "number" ||
+        !Number.isFinite(body.width) ||
+        body.width < MIN_NOTE_WIDTH ||
+        body.width > MAX_NOTE_WIDTH
+      ) {
+        return NextResponse.json(
+          { error: "Invalid note width" },
+          { status: 400 },
+        );
+      }
+      updates.width = body.width;
+    }
+    if (body.height !== undefined) {
+      if (
+        typeof body.height !== "number" ||
+        !Number.isFinite(body.height) ||
+        body.height < MIN_NOTE_HEIGHT ||
+        body.height > MAX_NOTE_HEIGHT
+      ) {
+        return NextResponse.json(
+          { error: "Invalid note height" },
+          { status: 400 },
+        );
+      }
+      updates.height = body.height;
+    }
     // Legacy fields remain writable for pending updates from older clients.
     if (typeof body.user_id === "string" || body.user_id === null)
       updates.user_id = body.user_id;

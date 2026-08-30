@@ -1,9 +1,13 @@
+import { normalizeNoteSize } from "@/lib/canvas-geometry";
+
 export interface NoteData {
   id: string;
   content: string;
   color: string;
   position_x: number;
   position_y: number;
+  width: number;
+  height: number;
   created_at?: string;
   author_id?: string;
   author_username_snapshot?: string;
@@ -93,6 +97,7 @@ export function normalizeNoteRecord(
 
   const createdAt = normalizeDate(value.created_at);
   const editedAt = normalizeDate(value.edited_at) ?? createdAt;
+  const size = normalizeNoteSize(value.width, value.height);
 
   return {
     id,
@@ -100,6 +105,8 @@ export function normalizeNoteRecord(
     color,
     position_x: positionX,
     position_y: positionY,
+    width: size.width,
+    height: size.height,
     created_at: createdAt,
     edited_at: editedAt,
     author_id:

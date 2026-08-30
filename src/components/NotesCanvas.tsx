@@ -6,12 +6,16 @@ import Note, { NoteProps } from "@/components/Note";
 import { X, CircleHelp } from "lucide-react";
 import type { NoteData } from "@/lib/notes";
 import { resolveNoteAuthor, type PublicProfile } from "@/lib/profiles";
+import { getNoteCenter } from "@/lib/canvas-geometry";
 
 interface NotesCanvasProps {
   notes: NoteData[];
   isDragging: string | null;
+  isResizing: string | null;
   editingNote: string | null;
   onPointerDown: (e: React.PointerEvent, noteId: string) => void;
+  onResizePointerDown: (e: React.PointerEvent, noteId: string) => void;
+  onResizeKeyDown: (e: React.KeyboardEvent, noteId: string) => void;
   onNoteEdit: (noteId: string) => void;
   onNoteDelete: (noteId: string) => void;
   onNoteChange: (noteId: string, content: string) => void;
@@ -26,8 +30,11 @@ interface NotesCanvasProps {
 const NotesCanvas: React.FC<NotesCanvasProps> = ({
   notes,
   isDragging,
+  isResizing,
   editingNote,
   onPointerDown,
+  onResizePointerDown,
+  onResizeKeyDown,
   onNoteEdit,
   onNoteDelete,
   onNoteChange,
@@ -135,9 +142,11 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
         const pairKey = [note1.id, note2.id].sort().join("|");
         if (seenPairs.has(pairKey)) return;
 
-        const distance = Math.sqrt(
-          Math.pow(note1.position_x - note2.position_x, 2) +
-            Math.pow(note1.position_y - note2.position_y, 2),
+        const firstCenter = getNoteCenter(note1);
+        const secondCenter = getNoteCenter(note2);
+        const distance = Math.hypot(
+          firstCenter.x - secondCenter.x,
+          firstCenter.y - secondCenter.y,
         );
 
         if (distance < NOTE_THRESHOLD) {
@@ -146,10 +155,10 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
           connections.push(
             <line
               key={pairKey}
-              x1={note1.position_x + 160}
-              y1={note1.position_y + 112}
-              x2={note2.position_x + 160}
-              y2={note2.position_y + 112}
+              x1={firstCenter.x}
+              y1={firstCenter.y}
+              x2={secondCenter.x}
+              y2={secondCenter.y}
               stroke="rgba(99, 102, 241, 0.4)"
               strokeWidth={Math.max(0.5, 1 / zoom)}
               opacity={opacity}
@@ -178,13 +187,14 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
   const renderNote = useCallback(
     (note: NoteData) => {
       const isDraggingThis = isDragging === note.id;
+      const isResizingThis = isResizing === note.id;
       const author = resolveNoteAuthor(note, profiles);
 
       return (
         <div
           key={note.id}
           data-note-id={note.id}
-          className={`note-container absolute ${isDraggingThis ? "z-50" : "z-10"}`}
+          className={`note-container absolute ${isDraggingThis || isResizingThis ? "z-50" : "z-10"}`}
           style={{
             transform: `translate3d(${note.position_x}px, ${note.position_y}px, 0)`,
             transformOrigin: "top left",
@@ -199,6 +209,11 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
           <Note
             id={note.id}
             content={note.content}
+            width={note.width}
+            height={note.height}
+            isResizing={isResizingThis}
+            onResizePointerDown={onResizePointerDown}
+            onResizeKeyDown={onResizeKeyDown}
             color={(note.color as NoteProps["color"]) || "blue"}
             isEditing={editingNote === note.id}
             onEdit={onNoteEdit}
@@ -223,9 +238,12 @@ const NotesCanvas: React.FC<NotesCanvasProps> = ({
     },
     [
       isDragging,
+      isResizing,
       editingNote,
       handleNotePointerDown,
       onNoteEdit,
+      onResizePointerDown,
+      onResizeKeyDown,
       onNoteDelete,
       onNoteChange,
       onEditSave,

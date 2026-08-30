@@ -80,20 +80,24 @@ function HomeContent() {
   const {
     containerRef,
     isDragging,
+    isResizing,
     isPanning,
     handlePointerDownCapture,
     handleNotePointerDown,
+    handleNoteResizePointerDown,
+    handleNoteResizeKeyDown,
     handlePointerMove,
     handlePointerEnd,
     handleCanvasPointerDown,
     handleWheel,
     screenToWorld,
+    mergeWithActiveGeometry,
   } = useCanvasGestures({
     notes,
     setNotes,
     editingNote,
     setEditingNote,
-    onNoteMove: (noteId, updates) => {
+    onNoteGeometryChange: (noteId, updates) => {
       void updateNote(noteId, updates);
     },
   });
@@ -123,6 +127,8 @@ function HomeContent() {
       // Center the note around the screen/world point
       position_x: worldCoords.x - CANVAS_NOTE_WIDTH / 2,
       position_y: worldCoords.y - CANVAS_NOTE_HEIGHT / 2,
+      width: CANVAS_NOTE_WIDTH,
+      height: CANVAS_NOTE_HEIGHT,
       author_id: user?.uid ?? null,
     };
     // Queue up a different shade for the note after this one
@@ -300,16 +306,18 @@ function HomeContent() {
         }
         const data = (await response.json()) as { notes?: unknown };
         const loaded = Array.isArray(data.notes) ? data.notes : [];
-        const normalized = mergeWithPending(
-          normalizeNotesCollection(
-            Object.fromEntries(
-              loaded
-                .filter((note): note is Record<string, unknown> =>
-                  Boolean(note && typeof note === "object"),
-                )
-                .map((note) => [String(note.id ?? ""), note]),
-            ),
-          ).filter((note) => !pendingDeleteIdsRef.current.has(note.id)),
+        const normalized = mergeWithActiveGeometry(
+          mergeWithPending(
+            normalizeNotesCollection(
+              Object.fromEntries(
+                loaded
+                  .filter((note): note is Record<string, unknown> =>
+                    Boolean(note && typeof note === "object"),
+                  )
+                  .map((note) => [String(note.id ?? ""), note]),
+              ),
+            ).filter((note) => !pendingDeleteIdsRef.current.has(note.id)),
+          ),
         );
         if (!cancelled && !realtimeDelivered) {
           setNotes(normalized);
@@ -329,9 +337,11 @@ function HomeContent() {
         setIsConnected(true);
         setLastActivity(Date.now());
         setNotes(
-          mergeWithPending(
-            normalizeNotesCollection(snapshot.val()).filter(
-              (note) => !pendingDeleteIdsRef.current.has(note.id),
+          mergeWithActiveGeometry(
+            mergeWithPending(
+              normalizeNotesCollection(snapshot.val()).filter(
+                (note) => !pendingDeleteIdsRef.current.has(note.id),
+              ),
             ),
           ),
         );
@@ -347,7 +357,7 @@ function HomeContent() {
       cancelled = true;
       unsubscribe();
     };
-  }, [flush, mergeWithPending]);
+  }, [flush, mergeWithActiveGeometry, mergeWithPending]);
 
   return (
     <div
@@ -369,8 +379,11 @@ function HomeContent() {
         <NotesCanvas
           notes={notes}
           isDragging={isDragging}
+          isResizing={isResizing}
           editingNote={editingNote}
           onPointerDown={handleNotePointerDown}
+          onResizePointerDown={handleNoteResizePointerDown}
+          onResizeKeyDown={handleNoteResizeKeyDown}
           onNoteEdit={handleNoteEdit}
           onNoteDelete={handleNoteDelete}
           onNoteChange={handleNoteChange}

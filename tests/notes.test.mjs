@@ -53,6 +53,36 @@ test("normalization removes invalid stars and converts timestamps", () => {
   assert.deepEqual(note.stars, { alice: true });
 });
 
+test("normalization supplies legacy dimensions and clamps stored sizes", () => {
+  const [legacy, resized] = normalizeNotesCollection({
+    legacy: {
+      content: "Old note",
+      color: "yellow",
+      position_x: 0,
+      position_y: 0,
+      created_at: 1,
+    },
+    resized: {
+      content: "Large note",
+      color: "blue",
+      position_x: 0,
+      position_y: 0,
+      width: 50_000,
+      height: 50,
+      created_at: 2,
+    },
+  });
+
+  assert.deepEqual(
+    { width: legacy.width, height: legacy.height },
+    { width: 320, height: 224 },
+  );
+  assert.deepEqual(
+    { width: resized.width, height: resized.height },
+    { width: 960, height: 180 },
+  );
+});
+
 test("normalization reads the new author schema and legacy fallbacks", () => {
   const [current] = normalizeNotesCollection({
     current: {

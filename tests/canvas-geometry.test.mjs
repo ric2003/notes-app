@@ -3,8 +3,17 @@ import test from "node:test";
 
 import {
   calculateContentFit,
+  calculateNoteResize,
   calculatePinchTransform,
+  CANVAS_NOTE_HEIGHT,
+  CANVAS_NOTE_WIDTH,
   distanceBetween,
+  getNoteBounds,
+  getNoteCenter,
+  MAX_NOTE_HEIGHT,
+  MAX_NOTE_WIDTH,
+  MIN_NOTE_HEIGHT,
+  MIN_NOTE_WIDTH,
   midpointBetween,
 } from "../src/lib/canvas-geometry.ts";
 
@@ -98,8 +107,8 @@ test("invalid pinch snapshots return a finite safe transform", () => {
 test("fit-to-content uses one scale for clamping and centering", () => {
   const fit = calculateContentFit({
     items: [
-      { x: -10_000, y: -5_000 },
-      { x: 11_450, y: 5_800 },
+      { x: -10_000, y: -5_000, width: 320, height: 224 },
+      { x: 11_450, y: 5_800, width: 640, height: 400 },
     ],
     viewportWidth: 320,
     viewportHeight: 568,
@@ -109,8 +118,48 @@ test("fit-to-content uses one scale for clamping and centering", () => {
   assert.ok(fit.zoom > 0.01 && fit.zoom < 0.02);
 
   const left = (-10_000 - 100) * fit.zoom + fit.pan.x;
-  const right = (11_450 + 320 + 100) * fit.zoom + fit.pan.x;
+  const right = (11_450 + 640 + 100) * fit.zoom + fit.pan.x;
   assert.ok(left >= -0.001);
   assert.ok(right <= 320.001);
   assert.ok(Math.abs((left + right) / 2 - 160) < 0.001);
+});
+
+test("note resize uses world-coordinate deltas and clamps its result", () => {
+  assert.deepEqual(
+    calculateNoteResize({
+      startSize: { width: 320, height: 224 },
+      startPointer: { x: 800, y: 500 },
+      currentPointer: { x: 960, y: 620 },
+    }),
+    { width: 480, height: 344 },
+  );
+  assert.deepEqual(
+    calculateNoteResize({
+      startSize: { width: 320, height: 224 },
+      startPointer: { x: 800, y: 500 },
+      currentPointer: { x: -10_000, y: 20_000 },
+    }),
+    { width: MIN_NOTE_WIDTH, height: MAX_NOTE_HEIGHT },
+  );
+  assert.equal(MAX_NOTE_WIDTH, 960);
+  assert.equal(MIN_NOTE_HEIGHT, 180);
+});
+
+test("note bounds default legacy sizes and calculate the actual center", () => {
+  const legacy = getNoteBounds({ position_x: 40, position_y: -20 });
+  const resized = {
+    position_x: 100,
+    position_y: 200,
+    width: 600,
+    height: 360,
+  };
+
+  assert.deepEqual(legacy, {
+    x: 40,
+    y: -20,
+    width: CANVAS_NOTE_WIDTH,
+    height: CANVAS_NOTE_HEIGHT,
+  });
+  assert.deepEqual(getNoteCenter(resized), { x: 400, y: 380 });
+  assert.equal(MAX_NOTE_WIDTH, 960);
 });

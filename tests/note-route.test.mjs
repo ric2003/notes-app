@@ -49,6 +49,8 @@ test("authenticated note creation derives snapshots from the public profile", as
           color: "blue",
           position_x: 10,
           position_y: 20,
+          width: 480,
+          height: 320,
           author_id: "user-1",
           author_username_snapshot: "spoofed_name",
           author_photo_snapshot: "https://example.com/spoofed.png",
@@ -62,6 +64,8 @@ test("authenticated note creation derives snapshots from the public profile", as
       "https://notes-test.firebaseio.com/notes.json?auth=id-token",
     );
     assert.equal(createBody.author_id, "user-1");
+    assert.equal(createBody.width, 480);
+    assert.equal(createBody.height, 320);
     assert.equal(createBody.author_username_snapshot, "current_name");
     assert.equal(
       createBody.author_photo_snapshot,
@@ -119,6 +123,8 @@ test("anonymous note creation omits public identity fields", async () => {
     assert.equal(createBody.author_id, null);
     assert.equal(createBody.author_username_snapshot, null);
     assert.equal(createBody.author_photo_snapshot, null);
+    assert.equal(createBody.width, 320);
+    assert.equal(createBody.height, 224);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalDatabaseUrl === undefined) {

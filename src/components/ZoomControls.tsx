@@ -5,7 +5,12 @@ import { ZoomIn, ZoomOut, RotateCcw, Maximize2 } from "lucide-react";
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from "@/lib/canvas-geometry";
 
 interface ZoomControlsProps {
-  notes: Array<{ position_x: number; position_y: number }>;
+  notes: Array<{
+    position_x: number;
+    position_y: number;
+    width?: number;
+    height?: number;
+  }>;
   className?: string;
   compactOnNarrowScreens?: boolean;
 }

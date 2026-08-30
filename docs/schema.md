@@ -30,6 +30,8 @@ notes/{noteId}
   color: string
   position_x: number
   position_y: number
+  width?: number
+  height?: number
   author_id?: uid
   author_username_snapshot?: string
   author_photo_snapshot?: HTTPS URL
@@ -39,6 +41,8 @@ notes/{noteId}
 ```
 
 Anonymous notes omit all author fields. Authenticated note creation sends a Firebase ID token, and database rules require `author_id` to match that account. Rules also require the snapshots to match the reserved public profile and prevent later attribution changes.
+
+New notes store their width and height in canvas pixels. The client treats missing dimensions on older notes as `320 × 224`. Resizing is limited to widths from 240 through 960 and heights from 180 through 720.
 
 Readers prefer the current profile username and photo. Snapshots are the fallback if the profile is missing. The legacy `user_id`, `user_name`, and `user_photo_url` fields remain readable so existing notes do not need an immediate destructive migration.
 

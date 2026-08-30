@@ -12,12 +12,16 @@ test("new updates merge with fields that have not reached the server", () => {
   const first = mergePendingUpdate(new Map(), "note-1", position);
   const second = mergePendingUpdate(first.next, "note-1", {
     content: "still here",
+    width: 480,
+    height: 320,
   });
 
   assert.deepEqual(second.merged, {
     position_x: 120,
     position_y: 240,
     content: "still here",
+    width: 480,
+    height: 320,
   });
 });
 

@@ -7,7 +7,13 @@
       "$noteId": {
         ".read": true,
         ".write": "$noteId !== 'presence'",
-        ".validate": "(data.exists() && newData.child('author_id').val() === data.child('author_id').val() && newData.child('author_username_snapshot').val() === data.child('author_username_snapshot').val() && newData.child('author_photo_snapshot').val() === data.child('author_photo_snapshot').val()) || (!data.exists() && !newData.child('user_id').exists() && !newData.child('user_name').exists() && !newData.child('user_photo_url').exists() && ((!newData.child('author_id').exists() && !newData.child('author_username_snapshot').exists() && !newData.child('author_photo_snapshot').exists()) || (auth != null && newData.child('author_id').val() === auth.uid && newData.child('author_username_snapshot').val() === root.child('profiles').child(auth.uid).child('username').val() && newData.child('author_photo_snapshot').val() === root.child('profiles').child(auth.uid).child('photo_url').val())))"
+        ".validate": "(data.exists() && newData.child('author_id').val() === data.child('author_id').val() && newData.child('author_username_snapshot').val() === data.child('author_username_snapshot').val() && newData.child('author_photo_snapshot').val() === data.child('author_photo_snapshot').val()) || (!data.exists() && !newData.child('user_id').exists() && !newData.child('user_name').exists() && !newData.child('user_photo_url').exists() && ((!newData.child('author_id').exists() && !newData.child('author_username_snapshot').exists() && !newData.child('author_photo_snapshot').exists()) || (auth != null && newData.child('author_id').val() === auth.uid && newData.child('author_username_snapshot').val() === root.child('profiles').child(auth.uid).child('username').val() && newData.child('author_photo_snapshot').val() === root.child('profiles').child(auth.uid).child('photo_url').val())))",
+        "width": {
+          ".validate": "newData.isNumber() && newData.val() >= 240 && newData.val() <= 960"
+        },
+        "height": {
+          ".validate": "newData.isNumber() && newData.val() >= 180 && newData.val() <= 720"
+        }
       }
     },
     "presence": {
