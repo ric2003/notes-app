@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Map, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Map, Move, X } from "lucide-react";
 import MiniMap from "@/components/MiniMap";
 
 type MobileMiniMapProps = {
@@ -13,8 +13,30 @@ type MobileMiniMapProps = {
   }>;
 };
 
+const MINIMAP_HINT_DISMISSED_KEY = "notesAppMinimapHintDismissed";
+
 export default function MobileMiniMap({ notes }: MobileMiniMapProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+
+  useEffect(() => {
+    try {
+      setShowHint(
+        window.localStorage.getItem(MINIMAP_HINT_DISMISSED_KEY) !== "true",
+      );
+    } catch {
+      setShowHint(true);
+    }
+  }, []);
+
+  const dismissHint = useCallback(() => {
+    setShowHint(false);
+    try {
+      window.localStorage.setItem(MINIMAP_HINT_DISMISSED_KEY, "true");
+    } catch {
+      // The hint still stays hidden for the current session.
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -43,10 +65,19 @@ export default function MobileMiniMap({ notes }: MobileMiniMapProps) {
 
       {isOpen && (
         <div
-          className="absolute right-0 bottom-full mb-2 animate-scale-in"
+          className="absolute right-0 bottom-full mb-2 flex w-44 flex-col gap-2 animate-scale-in"
           data-mobile-minimap
         >
-          <MiniMap notes={notes} />
+          {showHint && (
+            <div
+              className="pointer-events-none flex items-center gap-2 rounded-xl border border-white/70 bg-slate-900/90 px-3 py-2 text-[11px] font-medium leading-4 text-white shadow-lg backdrop-blur-xl"
+              data-minimap-hint
+            >
+              <Move className="h-3.5 w-3.5 shrink-0 text-sky-300" />
+              <span>Tap any spot or drag to move around.</span>
+            </div>
+          )}
+          <MiniMap notes={notes} onNavigate={dismissHint} />
         </div>
       )}
     </div>

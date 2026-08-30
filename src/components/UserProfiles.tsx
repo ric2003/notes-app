@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { UserIcon, LogOut, X } from "lucide-react";
+import {
+  AtSign,
+  CalendarDays,
+  CheckCircle2,
+  LogOut,
+  Mail,
+  UserIcon,
+  X,
+} from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { UsernameTakenError, useProfile } from "@/contexts/ProfileContext";
 import {
@@ -154,6 +162,16 @@ function GoogleIcon() {
   );
 }
 
+function formatAccountDate(value?: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
 export default function UserProfiles({
   className = "",
   isConnected = false,
@@ -168,10 +186,12 @@ export default function UserProfiles({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPresenceList, setShowPresenceList] = useState(false);
+  const [showProfileDetails, setShowProfileDetails] = useState(false);
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const presenceRef = useRef<HTMLDivElement | null>(null);
+  const accountRef = useRef<HTMLDivElement | null>(null);
   const prevPresenceIdRef = useRef<string | null>(null);
 
   // Auth modes and inputs
@@ -197,15 +217,24 @@ export default function UserProfiles({
   // Close presence popover on outside click or Escape
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
-      if (!presenceRef.current) return;
-      if (!presenceRef.current.contains(event.target as Node)) {
+      if (
+        presenceRef.current &&
+        !presenceRef.current.contains(event.target as Node)
+      ) {
         setShowPresenceList(false);
+      }
+      if (
+        accountRef.current &&
+        !accountRef.current.contains(event.target as Node)
+      ) {
+        setShowProfileDetails(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setShowPresenceList(false);
         setShowAuthForm(false);
+        setShowProfileDetails(false);
       }
     };
     document.addEventListener("mousedown", handleDocumentClick);
@@ -356,6 +385,7 @@ export default function UserProfiles({
         }).catch(() => {});
       }
       await signOut(auth);
+      setShowProfileDetails(false);
     } catch {
       // no-op
     }
@@ -390,6 +420,12 @@ export default function UserProfiles({
   const profilePhoto = profile?.photo_url || user?.photoURL || undefined;
   const isEmailVerified = user?.emailVerified ?? null;
   const isIdentityLoading = identityState === "loading";
+  const accountCreated = formatAccountDate(user?.metadata.creationTime);
+  const signInMethod = user?.providerData.some(
+    ({ providerId }) => providerId === "google.com",
+  )
+    ? "Google"
+    : "Email and password";
 
   // Deterministic pastel color per user id
   const getColorForId = (id: string) => {
@@ -540,10 +576,19 @@ export default function UserProfiles({
       )}
 
       {/* User Profile */}
-      <div className="flex min-w-0 items-center">
+      <div ref={accountRef} className="flex min-w-0 items-center">
         {/* Combined profile and name container */}
         <div className="flex h-14 min-w-0 items-center rounded-2xl border border-white/70 bg-white/95 py-1.5 pl-1.5 pr-1.5 shadow-lg backdrop-blur-xl sm:pr-3.5">
-          <div className="relative mr-1.5 sm:mr-3">
+          <button
+            type="button"
+            onClick={() => setShowProfileDetails((visible) => !visible)}
+            disabled={!user || !profile || isIdentityLoading}
+            className="relative mr-1 flex min-h-11 min-w-11 items-center justify-center rounded-xl transition-transform enabled:hover:scale-105 focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:cursor-default sm:mr-1.5"
+            aria-label={user && profile ? "View profile" : undefined}
+            aria-expanded={user && profile ? showProfileDetails : undefined}
+            aria-haspopup={user && profile ? "dialog" : undefined}
+            title={user && profile ? "View profile" : undefined}
+          >
             {/* Main avatar with status ring */}
             <div
               className={`relative p-0.5 rounded-xl ${isConnected ? "bg-gradient-to-br from-emerald-400 to-teal-500" : "bg-gradient-to-br from-rose-400 to-red-500"} transition-all duration-300`}
@@ -573,7 +618,7 @@ export default function UserProfiles({
 
             {/* Connection Status indicator with glow */}
             <div
-              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-md border-2 border-white shadow-sm transition-all duration-300 ${
+              className={`absolute bottom-0 right-0 w-3 h-3 rounded-md border-2 border-white shadow-sm transition-all duration-300 ${
                 isConnected ? "bg-emerald-500" : "bg-rose-500"
               }`}
               style={{
@@ -585,11 +630,11 @@ export default function UserProfiles({
             {/* Unverified email marker — only visible to yourself */}
             {user && isEmailVerified === false && (
               <div
-                className="absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border border-white"
+                className="absolute left-0 top-0 h-2.5 w-2.5 rounded-full border border-white bg-amber-400"
                 title="Email not verified — check your inbox for the verification link"
               />
             )}
-          </div>
+          </button>
 
           {/* User name or sign in */}
           {isIdentityLoading ? (
@@ -601,21 +646,21 @@ export default function UserProfiles({
               <span className="h-11 w-11 animate-pulse rounded-xl bg-gray-100" />
             </div>
           ) : user ? (
-            <div className="flex min-w-0 items-center gap-1 sm:gap-3">
-              <span
-                className="block max-w-[4.5rem] truncate text-xs font-medium text-gray-700 min-[375px]:max-w-28 sm:text-sm md:max-w-40"
-                data-current-username
-              >
-                {currentUsername ? `@${currentUsername}` : "Choose username"}
-              </span>
+            <div className="flex min-w-0 items-center">
               <button
-                onClick={handleLogout}
-                className="min-w-11 min-h-11 flex items-center justify-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200 px-2 py-1 hover:bg-gray-100 rounded-xl focus-visible:outline-2 focus-visible:outline-indigo-500"
-                title="Sign out"
-                aria-label="Sign out"
+                type="button"
+                onClick={() => setShowProfileDetails((visible) => !visible)}
+                className="flex min-h-11 min-w-0 items-center rounded-xl px-1.5 text-gray-700 transition-colors hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-indigo-500 sm:px-2"
+                aria-label="View profile"
+                aria-expanded={showProfileDetails}
+                aria-haspopup="dialog"
               >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden lg:inline">Sign out</span>
+                <span
+                  className="block max-w-[4.5rem] truncate text-xs font-medium min-[375px]:max-w-28 sm:text-sm md:max-w-40"
+                  data-current-username
+                >
+                  {currentUsername ? `@${currentUsername}` : "Choose username"}
+                </span>
               </button>
             </div>
           ) : (
@@ -636,6 +681,145 @@ export default function UserProfiles({
             </button>
           )}
         </div>
+
+        {user && profile && showProfileDetails && (
+          <div
+            className="fixed inset-0 z-[100] overflow-hidden bg-slate-50/98 px-4 sm:absolute sm:inset-auto sm:top-[calc(100%+8px)] sm:right-0 sm:w-96 sm:max-h-[calc(100dvh-5rem)] sm:overflow-y-auto sm:rounded-3xl sm:border sm:border-white/70 sm:bg-white/97 sm:p-5 sm:shadow-2xl sm:backdrop-blur-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Your profile"
+          >
+            <div className="mx-auto flex h-full w-full max-w-sm flex-col justify-center pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:block sm:h-auto sm:max-w-none sm:p-0">
+              <div className="rounded-3xl border border-gray-200/80 bg-white p-4 shadow-xl sm:contents">
+                <div className="mb-3 flex items-center justify-between sm:mb-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      Your profile
+                    </h2>
+                    <p className="mt-0.5 text-xs text-gray-500 sm:mt-1 sm:text-sm">
+                      How you appear on Live Notes.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileDetails(false)}
+                    className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    aria-label="Close profile"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="mb-3 flex flex-col items-center rounded-2xl bg-slate-50 px-3 py-3 text-center sm:mb-5 sm:px-4 sm:py-5">
+                  <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-indigo-100 shadow-sm sm:h-20 sm:w-20 sm:rounded-3xl">
+                    {profilePhoto ? (
+                      <Image
+                        src={profilePhoto}
+                        alt=""
+                        width={80}
+                        height={80}
+                        unoptimized
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-indigo-600">
+                        {currentUsername.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-2 max-w-full truncate text-base font-semibold text-gray-900 sm:mt-3 sm:text-lg">
+                    @{currentUsername}
+                  </p>
+                  <div
+                    className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium sm:mt-2 sm:px-2.5 sm:py-1 sm:text-xs ${
+                      isConnected
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-rose-100 text-rose-700"
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        isConnected ? "bg-emerald-500" : "bg-rose-500"
+                      }`}
+                    />
+                    {isConnected ? "Online" : "Reconnecting"}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 px-3 py-2 sm:gap-3 sm:rounded-2xl sm:px-3.5 sm:py-3">
+                    <AtSign className="h-4.5 w-4.5 shrink-0 text-gray-400 sm:h-5 sm:w-5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-gray-500 sm:text-xs">
+                        Public username
+                      </p>
+                      <p className="truncate text-[13px] font-medium text-gray-900 sm:text-sm">
+                        @{currentUsername}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 px-3 py-2 sm:gap-3 sm:rounded-2xl sm:px-3.5 sm:py-3">
+                    <Mail className="h-4.5 w-4.5 shrink-0 text-gray-400 sm:h-5 sm:w-5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-gray-500 sm:text-xs">
+                        Email
+                      </p>
+                      <p className="truncate text-[13px] font-medium text-gray-900 sm:text-sm">
+                        {user.email || "No email available"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 px-3 py-2 sm:gap-3 sm:rounded-2xl sm:px-3.5 sm:py-3">
+                    <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-gray-400 sm:h-5 sm:w-5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-gray-500 sm:text-xs">
+                        Account
+                      </p>
+                      <p className="truncate text-[13px] font-medium text-gray-900 sm:text-sm">
+                        {signInMethod}
+                        {isEmailVerified === false
+                          ? " · Email not verified"
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+
+                  {accountCreated && (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-gray-100 px-3 py-2 sm:gap-3 sm:rounded-2xl sm:px-3.5 sm:py-3">
+                      <CalendarDays className="h-4.5 w-4.5 shrink-0 text-gray-400 sm:h-5 sm:w-5" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] text-gray-500 sm:text-xs">
+                          Joined
+                        </p>
+                        <p className="truncate text-[13px] font-medium text-gray-900 sm:text-sm">
+                          {accountCreated}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <p className="mt-4 hidden rounded-2xl bg-indigo-50 px-3.5 py-3 text-xs leading-5 text-indigo-700 sm:block">
+                  Your username cannot be changed yet.{" "}
+                  {signInMethod === "Google"
+                    ? "Your photo syncs from your Google account."
+                    : "Profile photo changes are not available yet."}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="mt-2.5 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-black sm:mt-4 sm:min-h-12 sm:py-3"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Auth popover */}

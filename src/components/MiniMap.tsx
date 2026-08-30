@@ -14,6 +14,7 @@ interface MiniMapProps {
     width?: number;
     height?: number;
   }>;
+  onNavigate?: () => void;
 }
 
 const MAP_W = 176;
@@ -21,15 +22,9 @@ const MAP_H = 132;
 // World-space breathing room around the content bounds
 const WORLD_PADDING = 400;
 
-export default function MiniMap({ notes }: MiniMapProps) {
-  const {
-    zoom,
-    panX,
-    panY,
-    containerWidth,
-    containerHeight,
-    setPan,
-  } = useZoom();
+export default function MiniMap({ notes, onNavigate }: MiniMapProps) {
+  const { zoom, panX, panY, containerWidth, containerHeight, setPan } =
+    useZoom();
   const mapRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
 
@@ -68,19 +63,26 @@ export default function MiniMap({ notes }: MiniMapProps) {
       x: (wx - minX) * scale + offX,
       y: (wy - minY) * scale + offY,
     }),
-    [minX, minY, scale, offX, offY]
+    [minX, minY, scale, offX, offY],
   );
 
   const centerCameraOn = useCallback(
     (mapX: number, mapY: number) => {
       const wx = (mapX - offX) / scale + minX;
       const wy = (mapY - offY) / scale + minY;
-      setPan(
-        containerWidth / 2 - wx * zoom,
-        containerHeight / 2 - wy * zoom
-      );
+      setPan(containerWidth / 2 - wx * zoom, containerHeight / 2 - wy * zoom);
     },
-    [offX, offY, scale, minX, minY, setPan, containerWidth, containerHeight, zoom]
+    [
+      offX,
+      offY,
+      scale,
+      minX,
+      minY,
+      setPan,
+      containerWidth,
+      containerHeight,
+      zoom,
+    ],
   );
 
   const mapPointFromEvent = (e: React.PointerEvent) => {
@@ -106,6 +108,7 @@ export default function MiniMap({ notes }: MiniMapProps) {
         e.stopPropagation();
         const pt = mapPointFromEvent(e);
         if (!pt) return;
+        onNavigate?.();
         isDraggingRef.current = true;
         try {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -126,7 +129,7 @@ export default function MiniMap({ notes }: MiniMapProps) {
       onWheel={(e) => e.stopPropagation()}
       role="application"
       aria-label="Board minimap"
-      title="Minimap — click or drag to navigate"
+      title="Minimap. Click or drag to navigate."
     >
       {/* Note chips */}
       {notes.map((n) => {

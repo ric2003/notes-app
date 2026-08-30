@@ -598,6 +598,10 @@ async function runMobileLayoutChecks(client) {
     deviceScaleFactor: 2,
     mobile: true,
   });
+  await setOffline(client, false);
+  await client.send("Runtime.evaluate", {
+    expression: `localStorage.removeItem("notesAppMinimapHintDismissed")`,
+  });
   await loadFixture(client);
 
   const { result: controlResult } = await client.send("Runtime.evaluate", {
@@ -751,8 +755,9 @@ async function runMobileLayoutChecks(client) {
       returnByValue: true,
       expression: `(() => {
         const map = document.querySelector('[data-mobile-minimap]');
+        const hint = document.querySelector('[data-minimap-hint]');
         const button = document.querySelector('[aria-label="Close board minimap"]');
-        if (!map || !button) return null;
+        if (!map || !hint || !button) return null;
         const rect = map.getBoundingClientRect();
         const buttonRect = button.getBoundingClientRect();
         return {
@@ -761,6 +766,7 @@ async function runMobileLayoutChecks(client) {
           right: rect.right,
           bottom: rect.bottom,
           buttonTop: buttonRect.top,
+          hintText: hint.textContent.trim(),
           viewport: { width: innerWidth, height: innerHeight },
         };
       })()`,
@@ -773,13 +779,70 @@ async function runMobileLayoutChecks(client) {
     minimap.top < 0 ||
     minimap.right > minimap.viewport.width ||
     minimap.bottom > minimap.viewport.height ||
-    minimap.bottom > minimap.buttonTop
+    minimap.bottom > minimap.buttonTop ||
+    minimap.hintText !== "Tap any spot or drag to move around."
   ) {
     throw new Error(
       `mobile minimap is unavailable or clipped: ${JSON.stringify(minimap)}`,
     );
   }
   console.log("PASS: mobile minimap sits beside the zoom bar and opens upward");
+
+  const { result: dismissalResult } = await client.send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(async () => {
+      const map = document.querySelector(
+        '[data-mobile-minimap] [aria-label="Board minimap"]',
+      );
+      if (!map) return null;
+      const rect = map.getBoundingClientRect();
+      const eventInit = {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        pointerId: 91,
+      };
+      map.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+      map.dispatchEvent(new PointerEvent('pointerup', eventInit));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return {
+        hintGone: document.querySelector('[data-minimap-hint]') === null,
+        stored: localStorage.getItem('notesAppMinimapHintDismissed'),
+      };
+    })()`,
+  });
+  if (
+    !dismissalResult.value?.hintGone ||
+    dismissalResult.value?.stored !== "true"
+  ) {
+    throw new Error(
+      `mobile minimap hint was not dismissed: ${JSON.stringify(dismissalResult.value)}`,
+    );
+  }
+
+  await setOffline(client, false);
+  await loadFixture(client);
+  const { result: persistedResult } = await client.send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(async () => {
+      document.querySelector('[aria-label="Open board minimap"]')?.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return {
+        mapOpen: document.querySelector('[data-mobile-minimap]') !== null,
+        hintGone: document.querySelector('[data-minimap-hint]') === null,
+      };
+    })()`,
+  });
+  if (!persistedResult.value?.mapOpen || !persistedResult.value?.hintGone) {
+    throw new Error(
+      `mobile minimap hint returned after reload: ${JSON.stringify(persistedResult.value)}`,
+    );
+  }
+  console.log(
+    "PASS: mobile minimap hint dismisses permanently after navigation",
+  );
 
   await client.send("Emulation.setDeviceMetricsOverride", {
     ...viewport,
