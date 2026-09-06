@@ -588,7 +588,9 @@ async function runNoteResizeChecks(client) {
       `keyboard resize failed: ${JSON.stringify(keyboardResult.value)}`,
     );
   }
-  console.log("PASS: touch and keyboard resize update and queue note dimensions");
+  console.log(
+    "PASS: touch and keyboard resize update and queue note dimensions",
+  );
 }
 
 async function runMobileLayoutChecks(client) {
@@ -927,6 +929,105 @@ async function runLandscapeTouchLayoutChecks(client) {
   });
 }
 
+async function runSavingChecks(client) {
+  async function evaluate(expression) {
+    const response = await client.send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (response.exceptionDetails)
+      throw new Error(
+        response.exceptionDetails.text +
+          ": " +
+          response.exceptionDetails.exception?.description,
+      );
+    return response.result.value;
+  }
+  await client.send("Page.navigate", { url: appUrl });
+  await retry(async () => {
+    if (
+      !(await evaluate(
+        `!!document.querySelector('[data-note-id="mobile-gesture-fixture"]')`,
+      ))
+    )
+      throw Error("Waiting for note");
+  }, 30000);
+  await evaluate(
+    `localStorage.removeItem('notesAppPendingUpdates'); document.querySelector('[aria-label="Edit note"]').click()`,
+  );
+  await client.send("Input.insertText", { text: " unsaved draft" });
+  const draft = await evaluate(
+    `JSON.parse(localStorage.getItem('notesAppPendingUpdates'))[0][1].content`,
+  );
+  if (!draft.endsWith(" unsaved draft"))
+    throw Error("Typing was not persisted before blur");
+  await client.send("Page.reload");
+  await retry(async () => {
+    const text = await evaluate(
+      `document.querySelector('[data-note-id="mobile-gesture-fixture"] [role="button"]')?.textContent`,
+    );
+    if (text !== draft) throw Error("Reload did not restore draft");
+  }, 30000);
+  console.log("PASS: each keystroke survives reload before blur or save");
+
+  await evaluate(
+    `window.__notesSaveMode = 'conflict'; document.querySelector('[aria-label="Edit note"]').click()`,
+  );
+  await client.send("Input.insertText", { text: " more" });
+  await retry(async () => {
+    const text = await evaluate(
+      `document.querySelector('[aria-label="Your unsynced text"]')?.value`,
+    );
+    if (text !== draft + " more")
+      throw Error("Conflict did not retain local draft");
+  }, 10000);
+  await evaluate(
+    `Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Use latest text').click()`,
+  );
+  await retry(async () => {
+    const text = await evaluate(
+      `document.querySelector('[data-note-id="mobile-gesture-fixture"] [role="button"]')?.textContent`,
+    );
+    if (text !== "Remote edit")
+      throw Error("Choosing remote text did not replace editor draft");
+  });
+  console.log(
+    "PASS: conflicting text is retained and choosing latest closes the editor",
+  );
+
+  await evaluate(
+    `document.querySelector('[aria-label="Delete note"]').click()`,
+  );
+  await evaluate(
+    `Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Undo').click()`,
+  );
+  if (
+    !(await evaluate(
+      `!!document.querySelector('[data-note-id="mobile-gesture-fixture"]')`,
+    ))
+  )
+    throw Error("Undo did not restore note");
+  await evaluate(
+    `document.querySelector('[aria-label="Delete note"]').click()`,
+  );
+  await client.send("Page.reload");
+  await retry(async () => {
+    if (
+      !(await evaluate(
+        `document.body.textContent.includes("Couldn't delete") && !!document.querySelector('[data-note-id="mobile-gesture-fixture"]')`,
+      ))
+    )
+      throw Error("Failed deletion did not restore note after reload");
+  }, 15000);
+  console.log(
+    "PASS: undo works and failed deletion restores a note after reload",
+  );
+  await evaluate(
+    `localStorage.removeItem('notesAppPendingUpdates'); localStorage.removeItem('notesAppPendingDeletes')`,
+  );
+}
+
 async function main() {
   if (typeof WebSocket === "undefined") {
     throw new Error("The mobile browser check requires Node.js 22 or newer");
@@ -986,7 +1087,18 @@ async function main() {
         created_at: '2026-01-01T00:00:00.000Z',
         user_name: 'Test user',
         user_photo_url: 'https://lh3.googleusercontent.com/a/test-avatar',
-      }];`,
+      }];
+      window.__notesSaveMode = 'offline';
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input.url;
+        if (url?.includes('/api/notes')) {
+          if (init?.method === 'DELETE') return Response.json({error: 'Delete failed'}, {status: 500});
+          if (window.__notesSaveMode === 'conflict') return Response.json({error: 'Someone else changed this note.', note: {...window.__NOTES_CANVAS_TEST_NOTES__[0], content: 'Remote edit'}}, {status: 409});
+          throw new TypeError('Offline test');
+        }
+        return originalFetch(input, init);
+      };`,
     });
     await client.send("Emulation.setDeviceMetricsOverride", {
       ...viewport,
@@ -997,6 +1109,7 @@ async function main() {
       enabled: true,
       maxTouchPoints: 5,
     });
+    await runSavingChecks(client);
     await runMobileLayoutChecks(client);
     await runLandscapeTouchLayoutChecks(client);
     await runNoteResizeChecks(client);

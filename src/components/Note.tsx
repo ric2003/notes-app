@@ -1,17 +1,5 @@
-import React, {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-} from "react";
-import {
-  PencilIcon,
-  TrashIcon,
-  Paintbrush,
-  Pen,
-  Star,
-} from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
 import {
   NOTE_COLORS,
   NOTE_COLOR_NAMES,
@@ -30,7 +18,11 @@ export interface NoteProps {
   isEditing?: boolean;
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
-  onContentChange?: (id: string, content: string) => void;
+  onContentChange?: (
+    id: string,
+    content: string,
+    expectedContent: string,
+  ) => void;
   onEditSave?: (id: string) => void;
   onColorChange?: (id: string, color: string) => void;
   className?: string;
@@ -69,20 +61,25 @@ const Note: React.FC<NoteProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [localContent, setLocalContent] = useState(content);
-  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // Tracks unsaved keystrokes so we can flush them when the tab hides/closes
-  const isDirtyRef = useRef(false);
   const localContentRef = useRef(localContent);
+  const [remoteChanged, setRemoteChanged] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isMacPlatform =
     typeof window !== "undefined" &&
     /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   useEffect(() => {
+    // The parent persists each keystroke immediately. Keep an active editor's
+    // text intact even if a remote save arrives between keystrokes.
+    if (isEditing && content !== localContentRef.current) {
+      setRemoteChanged(true);
+      return;
+    }
+    localContentRef.current = content;
     setLocalContent(content);
-  }, [content]);
+    setRemoteChanged(false);
+  }, [content, isEditing]);
 
-  // Move cursor to end when editing starts
   useEffect(() => {
     if (isEditing && textareaRef.current) {
       const textarea = textareaRef.current;
@@ -90,73 +87,6 @@ const Note: React.FC<NoteProps> = ({
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
   }, [isEditing]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // Clear timeout when editing state changes
-  useEffect(() => {
-    if (isEditing && debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-  }, [isEditing]);
-
-  localContentRef.current = localContent;
-
-  // Flush unsaved edits when the tab is hidden or closed — the debounce
-  // window would otherwise swallow the last second of typing.
-  useEffect(() => {
-    const flush = () => {
-      if (!isDirtyRef.current) return;
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-        debounceTimeoutRef.current = null;
-      }
-      onContentChange?.(id, localContentRef.current);
-      isDirtyRef.current = false;
-    };
-    const handleVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [id, onContentChange]);
-
-  // Flush unsaved edits when editing ends for any reason (Esc, clicking
-  // the board, opening another note) — not just on blur.
-  useEffect(() => {
-    if (!isEditing && isDirtyRef.current) {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-        debounceTimeoutRef.current = null;
-      }
-      onContentChange?.(id, localContentRef.current);
-      isDirtyRef.current = false;
-    }
-  }, [isEditing, id, onContentChange]);
-
-  const debouncedContentChange = useCallback(
-    (newContent: string) => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-      debounceTimeoutRef.current = setTimeout(() => {
-        debounceTimeoutRef.current = null;
-        isDirtyRef.current = false;
-        onContentChange?.(id, newContent);
-      }, 1000);
-    },
-    [id, onContentChange],
-  );
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "now";
@@ -207,23 +137,13 @@ const Note: React.FC<NoteProps> = ({
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
+    const expectedContent = localContentRef.current;
+    localContentRef.current = newContent;
     setLocalContent(newContent);
-    isDirtyRef.current = true;
-    // Only debounce if we're not in editing mode to avoid blocking
-    if (!isEditing) {
-      debouncedContentChange(newContent);
-    }
+    onContentChange?.(id, newContent, expectedContent);
   };
 
   const handleSaveEdit = () => {
-    // Clear any pending debounced changes
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-      debounceTimeoutRef.current = null;
-    }
-    isDirtyRef.current = false;
-    // Save the current content immediately when user finishes editing
-    onContentChange?.(id, localContent);
     onEditSave?.(id);
   };
 
@@ -277,9 +197,10 @@ const Note: React.FC<NoteProps> = ({
         width,
         height,
         borderRadius: "26px 6px 24px 6px / 6px 24px 6px 26px",
-        transform: isHovered || isResizing
-          ? "rotate(0deg) translateY(-2px)"
-          : `rotate(${tiltDeg}deg)`,
+        transform:
+          isHovered || isResizing
+            ? "rotate(0deg) translateY(-2px)"
+            : `rotate(${tiltDeg}deg)`,
         willChange: isHovered || isResizing ? "transform" : undefined,
       }}
       onMouseEnter={() => setIsHovered(true)}
@@ -372,8 +293,14 @@ const Note: React.FC<NoteProps> = ({
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
               className="min-h-0 w-full flex-1 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-base pointer-fine:text-sm placeholder:text-gray-500 transition-all duration-200"
+              aria-label="Note text"
               placeholder="Type your note here..."
             />
+            {remoteChanged && (
+              <p role="status" className="text-xs text-amber-800">
+                This note changed elsewhere. Your editor text is preserved.
+              </p>
+            )}
             <div className="text-[11px] text-gray-400 font-medium">
               {isMacPlatform
                 ? "⌘/⌥/⇧ + Enter or Esc to close"

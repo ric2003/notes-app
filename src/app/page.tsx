@@ -18,7 +18,7 @@ import {
 } from "@/lib/noteColors";
 import { normalizeNotesCollection, type NoteData } from "@/lib/notes";
 import { CANVAS_NOTE_HEIGHT, CANVAS_NOTE_WIDTH } from "@/lib/canvas-geometry";
-import { saveNoteUpdate } from "@/lib/note-client";
+import SyncStatus from "@/components/SyncStatus";
 import { useCanvasGestures } from "@/hooks/useCanvasGestures";
 import { useNoteUpdateQueue } from "@/hooks/useNoteUpdateQueue";
 
@@ -38,19 +38,10 @@ function HomeContent() {
   const [notes, setNotes] = useState<NoteData[]>([]);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [, setLastActivity] = useState(Date.now());
   const { user, profile, profiles } = useProfile();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const isCreatingRef = useRef(false);
-
-  // Undoable deletes: notes stay in the DB during the grace window, so
-  // realtime updates for them must be filtered out until it expires.
-  const UNDO_WINDOW_MS = 6000;
-  const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
-  const pendingDeletesRef = useRef<
-    Map<string, { note: NoteData; timer: number }>
-  >(new Map());
 
   function showToast(
     message: string,
@@ -69,13 +60,25 @@ function HomeContent() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
-  const { updateNote, mergeWithPending, flush } = useNoteUpdateQueue({
-    saveNote: saveNoteUpdate,
-    setNotes,
-    onSaveError: () => {
-      showToast("Couldn't save your change — it will be synced later", "error");
-    },
-  });
+  const { updateNote, mergeWithPending, flush, sync, status } =
+    useNoteUpdateQueue({ setNotes });
+
+  useEffect(() => {
+    return onValue(
+      ref(db, ".info/connected"),
+      (snapshot) => {
+        setIsConnected(snapshot.val() === true);
+        if (snapshot.val() === true) void flush();
+      },
+      () => setIsConnected(false),
+    );
+  }, [flush]);
+
+  // A failed delete becomes visible again without waiting for another database event.
+  useEffect(() => {
+    if (status.failedDeletes.length)
+      setNotes((previous) => sync.merge(previous));
+  }, [status.failedDeletes, sync]);
 
   const {
     containerRef,
@@ -194,10 +197,14 @@ function HomeContent() {
     }
   }
 
-  function handleNoteChange(noteId: string, content: string) {
+  function handleNoteChange(
+    noteId: string,
+    content: string,
+    expectedContent: string,
+  ) {
     void updateNote(noteId, {
       content,
-      edited_at: new Date().toISOString(),
+      expected_content: expectedContent,
     });
   }
 
@@ -208,53 +215,14 @@ function HomeContent() {
   function handleNoteDelete(noteId: string) {
     const note = notes.find((n) => n.id === noteId);
     if (!note) return;
-
-    // Remove locally right away so the delete feels instant
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
-    pendingDeleteIdsRef.current.add(noteId);
-
-    const timer = window.setTimeout(() => {
-      finalizeDelete(noteId);
-    }, UNDO_WINDOW_MS);
-    pendingDeletesRef.current.set(noteId, { note, timer });
-
-    showToast("Note deleted", "info", UNDO_WINDOW_MS, {
-      label: "Undo",
-      onClick: () => undoDelete(noteId),
-    });
-  }
-
-  function undoDelete(noteId: string) {
-    const entry = pendingDeletesRef.current.get(noteId);
-    if (!entry) return; // already finalized
-    window.clearTimeout(entry.timer);
-    pendingDeletesRef.current.delete(noteId);
-    pendingDeleteIdsRef.current.delete(noteId);
-    // Realtime feed will re-deliver it; add optimistically too
-    setNotes((prev) =>
-      prev.some((n) => n.id === noteId)
-        ? prev
-        : [...prev, entry.note].sort(
-            (a, b) =>
-              (a.created_at ? Date.parse(a.created_at) : 0) -
-              (b.created_at ? Date.parse(b.created_at) : 0),
-          ),
-    );
-  }
-
-  function finalizeDelete(noteId: string) {
-    pendingDeletesRef.current.delete(noteId);
-    pendingDeleteIdsRef.current.delete(noteId);
-    fetch(`/api/notes/${noteId}`, { method: "DELETE" }).catch((error) => {
-      console.error("Error deleting note:", error);
-      showToast("Failed to delete note on server", "error");
-    });
+    sync.delete(note);
+    setEditingNote((current) => (current === noteId ? null : current));
+    setNotes((previous) => sync.merge(previous));
   }
 
   function handleColorChange(noteId: string, newColor: string) {
     void updateNote(noteId, {
       color: newColor,
-      edited_at: new Date().toISOString(),
     });
   }
 
@@ -288,8 +256,10 @@ function HomeContent() {
         : undefined;
     if (fixture) {
       setNotes(
-        normalizeNotesCollection(
-          Object.fromEntries(fixture.map((note) => [note.id, note])),
+        mergeWithPending(
+          normalizeNotesCollection(
+            Object.fromEntries(fixture.map((note) => [note.id, note])),
+          ),
         ),
       );
       return;
@@ -316,7 +286,7 @@ function HomeContent() {
                   )
                   .map((note) => [String(note.id ?? ""), note]),
               ),
-            ).filter((note) => !pendingDeleteIdsRef.current.has(note.id)),
+            ),
           ),
         );
         if (!cancelled && !realtimeDelivered) {
@@ -334,22 +304,15 @@ function HomeContent() {
       notesRef,
       (snapshot) => {
         realtimeDelivered = true;
-        setIsConnected(true);
-        setLastActivity(Date.now());
         setNotes(
           mergeWithActiveGeometry(
-            mergeWithPending(
-              normalizeNotesCollection(snapshot.val()).filter(
-                (note) => !pendingDeleteIdsRef.current.has(note.id),
-              ),
-            ),
+            mergeWithPending(normalizeNotesCollection(snapshot.val())),
           ),
         );
         void flush();
       },
       (error) => {
         console.error("Realtime subscription error:", error);
-        setIsConnected(false);
       },
     );
 
@@ -395,6 +358,22 @@ function HomeContent() {
           onToggleStar={toggleStar}
         />
       </div>
+
+      <SyncStatus
+        sync={sync}
+        status={status}
+        connected={isConnected}
+        onRestore={(note) => {
+          setEditingNote(null);
+          setNotes((previous) =>
+            sync.merge(
+              previous.some((n) => n.id === note.id)
+                ? previous.map((n) => (n.id === note.id ? note : n))
+                : [...previous, note],
+            ),
+          );
+        }}
+      />
 
       {/* Floating controls - Top Left and Right */}
       <div

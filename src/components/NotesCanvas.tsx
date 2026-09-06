@@ -18,7 +18,11 @@ interface NotesCanvasProps {
   onResizeKeyDown: (e: React.KeyboardEvent, noteId: string) => void;
   onNoteEdit: (noteId: string) => void;
   onNoteDelete: (noteId: string) => void;
-  onNoteChange: (noteId: string, content: string) => void;
+  onNoteChange: (
+    noteId: string,
+    content: string,
+    expectedContent: string,
+  ) => void;
   onColorChange: (noteId: string, newColor: string) => void;
   onEditSave: () => void;
   onCanvasPointerDown?: (e: React.PointerEvent) => void;

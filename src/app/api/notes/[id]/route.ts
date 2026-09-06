@@ -63,6 +63,7 @@ export async function PATCH(req: Request, context: unknown) {
   try {
     const body = (await req.json()) as Partial<{
       content: string;
+      expected_content: string;
       color: string;
       position_x: number;
       position_y: number;
@@ -137,29 +138,59 @@ export async function PATCH(req: Request, context: unknown) {
     if (isReservedNoteId(id)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const patchRes = await fetch(buildDbUrl(`notes/${id}.json`), {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
-    if (!patchRes.ok) {
-      throw new Error(`RTDB PATCH failed with status ${patchRes.status}`);
+    // Compare and write atomically so a stale editor cannot overwrite newer text
+    // and a delayed update cannot recreate a deleted note.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const currentRes = await fetch(buildDbUrl(`notes/${id}.json`), {
+        method: "GET",
+        headers: { "X-Firebase-ETag": "true" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!currentRes.ok)
+        throw new Error(`RTDB GET failed: ${currentRes.status}`);
+      const current = await currentRes.json();
+      const note = normalizeNoteRecord(id, current);
+      if (!note)
+        return NextResponse.json(
+          {
+            error:
+              "This note was deleted. Your text is kept here for you to copy.",
+          },
+          { status: 404 },
+        );
+      if (
+        typeof updates.content === "string" &&
+        typeof body.expected_content === "string" &&
+        note.content !== body.expected_content &&
+        note.content !== updates.content
+      ) {
+        return NextResponse.json(
+          {
+            error: "Someone else changed this note. Choose which text to keep.",
+            note,
+          },
+          { status: 409 },
+        );
+      }
+      const etag = currentRes.headers.get("etag");
+      if (!etag) throw new Error("Database did not provide an ETag");
+      const writeRes = await fetch(buildDbUrl(`notes/${id}.json`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "if-match": etag },
+        body: JSON.stringify({ ...current, ...updates }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (writeRes.status === 412) continue;
+      if (!writeRes.ok) throw new Error(`RTDB PUT failed: ${writeRes.status}`);
+      const saved = normalizeNoteRecord(id, await writeRes.json());
+      if (!saved) throw new Error("RTDB returned an invalid note");
+      return NextResponse.json({ note: saved });
     }
-
-    // Read back to return normalized note
-    const readRes = await fetch(buildDbUrl(`notes/${id}.json`), {
-      method: "GET",
-      cache: "no-store",
-    });
-    if (!readRes.ok) {
-      throw new Error(
-        `RTDB GET after PATCH failed with status ${readRes.status}`,
-      );
-    }
-    const note = normalizeNoteRecord(id, await readRes.json());
-    if (!note) throw new Error("RTDB returned an invalid note");
-
-    return NextResponse.json({ note });
+    return NextResponse.json(
+      { error: "This note is busy. Retrying shortly." },
+      { status: 503 },
+    );
   } catch (error: unknown) {
     return NextResponse.json(
       {
