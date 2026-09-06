@@ -52,8 +52,6 @@ test("authenticated note creation derives snapshots from the public profile", as
           width: 480,
           height: 320,
           author_id: "user-1",
-          author_username_snapshot: "spoofed_name",
-          author_photo_snapshot: "https://example.com/spoofed.png",
         }),
       }),
     );
@@ -114,7 +112,7 @@ test("anonymous note creation omits public identity fields", async () => {
         body: JSON.stringify({
           content: "Guest note",
           color: "yellow",
-          author_id: "pretend-user",
+          author_id: null,
         }),
       }),
     );

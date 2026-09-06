@@ -9,7 +9,8 @@
     "lint": "eslint src",
     "test": "tsx --test tests/*.test.mjs",
     "test:mobile": "node scripts/mobile-gesture-check.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:rules": "firebase emulators:exec --only database --project demo-notes --config firebase.test.json \"node --test tests/rules/*.test.mjs\""
   },
   "dependencies": {
     "firebase": "^12.1.0",
@@ -20,12 +21,14 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.4.5",
+    "firebase-tools": "^15.29.0",
     "prettier": "^3.6.2",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

@@ -293,6 +293,7 @@ const Note: React.FC<NoteProps> = ({
               onKeyDown={handleKeyDown}
               onBlur={handleSaveEdit}
               className="min-h-0 w-full flex-1 p-3 text-gray-800 leading-relaxed bg-white/70 border border-gray-300/80 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400/50 text-base pointer-fine:text-sm placeholder:text-gray-500 transition-all duration-200"
+              maxLength={10000}
               aria-label="Note text"
               placeholder="Type your note here..."
             />

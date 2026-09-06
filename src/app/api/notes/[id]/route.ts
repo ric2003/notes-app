@@ -1,15 +1,11 @@
+import {
+  readNoteInput,
+  validateNoteInput,
+  NoteInputError,
+  isDatabaseKey,
+} from "@/lib/note-validation";
 import { NextResponse } from "next/server";
-import {
-  isReservedNoteId,
-  normalizeNoteRecord,
-  normalizeUserPhotoUrl,
-} from "@/lib/notes";
-import {
-  MAX_NOTE_HEIGHT,
-  MAX_NOTE_WIDTH,
-  MIN_NOTE_HEIGHT,
-  MIN_NOTE_WIDTH,
-} from "@/lib/canvas-geometry";
+import { normalizeNoteRecord } from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,7 +21,7 @@ export async function GET(_req: Request, context: unknown) {
     const params = await (context as { params: Promise<{ id: string }> })
       .params;
     const { id } = params;
-    if (isReservedNoteId(id)) {
+    if (!isDatabaseKey(id)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
@@ -44,6 +40,11 @@ export async function GET(_req: Request, context: unknown) {
     }
     return NextResponse.json({ note });
   } catch (error: unknown) {
+    if (error instanceof NoteInputError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       {
         error: "Failed to fetch note",
@@ -61,7 +62,9 @@ export async function GET(_req: Request, context: unknown) {
 
 export async function PATCH(req: Request, context: unknown) {
   try {
-    const body = (await req.json()) as Partial<{
+    const input = await readNoteInput(req);
+    validateNoteInput(input, false);
+    const body = input as Partial<{
       content: string;
       expected_content: string;
       color: string;
@@ -69,9 +72,6 @@ export async function PATCH(req: Request, context: unknown) {
       position_y: number;
       width: number;
       height: number;
-      user_id: string | null;
-      user_name: string | null;
-      user_photo_url: string | null;
       edited_at: string | boolean; // ignored, server managed
     }>;
 
@@ -82,46 +82,8 @@ export async function PATCH(req: Request, context: unknown) {
       updates.position_x = body.position_x;
     if (typeof body.position_y === "number")
       updates.position_y = body.position_y;
-    if (body.width !== undefined) {
-      if (
-        typeof body.width !== "number" ||
-        !Number.isFinite(body.width) ||
-        body.width < MIN_NOTE_WIDTH ||
-        body.width > MAX_NOTE_WIDTH
-      ) {
-        return NextResponse.json(
-          { error: "Invalid note width" },
-          { status: 400 },
-        );
-      }
-      updates.width = body.width;
-    }
-    if (body.height !== undefined) {
-      if (
-        typeof body.height !== "number" ||
-        !Number.isFinite(body.height) ||
-        body.height < MIN_NOTE_HEIGHT ||
-        body.height > MAX_NOTE_HEIGHT
-      ) {
-        return NextResponse.json(
-          { error: "Invalid note height" },
-          { status: 400 },
-        );
-      }
-      updates.height = body.height;
-    }
-    // Legacy fields remain writable for pending updates from older clients.
-    if (typeof body.user_id === "string" || body.user_id === null)
-      updates.user_id = body.user_id;
-    if (typeof body.user_name === "string" || body.user_name === null)
-      updates.user_name = body.user_name;
-    if (
-      typeof body.user_photo_url === "string" ||
-      body.user_photo_url === null
-    ) {
-      updates.user_photo_url =
-        normalizeUserPhotoUrl(body.user_photo_url) ?? null;
-    }
+    if (typeof body.width === "number") updates.width = body.width;
+    if (typeof body.height === "number") updates.height = body.height;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
@@ -135,7 +97,7 @@ export async function PATCH(req: Request, context: unknown) {
     const params = await (context as { params: Promise<{ id: string }> })
       .params;
     const { id } = params;
-    if (isReservedNoteId(id)) {
+    if (!isDatabaseKey(id)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     // Compare and write atomically so a stale editor cannot overwrite newer text
@@ -192,6 +154,11 @@ export async function PATCH(req: Request, context: unknown) {
       { status: 503 },
     );
   } catch (error: unknown) {
+    if (error instanceof NoteInputError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       {
         error: "Failed to update note",
@@ -214,7 +181,7 @@ export async function DELETE(_req: Request, context: unknown) {
     const params = await (context as { params: Promise<{ id: string }> })
       .params;
     const { id } = params;
-    if (isReservedNoteId(id)) {
+    if (!isDatabaseKey(id)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const res = await fetch(buildDbUrl(`notes/${id}.json`), {
@@ -225,6 +192,11 @@ export async function DELETE(_req: Request, context: unknown) {
     }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
+    if (error instanceof NoteInputError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       {
         error: "Failed to delete note",

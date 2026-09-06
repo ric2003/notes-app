@@ -37,7 +37,6 @@ notes/{noteId}
   author_photo_snapshot?: HTTPS URL
   created_at: server timestamp
   edited_at: server timestamp
-  stars?: {uid: true}
 ```
 
 Anonymous notes omit all author fields. Authenticated note creation sends a Firebase ID token, and database rules require `author_id` to match that account. Rules also require the snapshots to match the reserved public profile and prevent later attribution changes.
@@ -46,18 +45,35 @@ New notes store their width and height in canvas pixels. The client treats missi
 
 Readers prefer the current profile username and photo. Snapshots are the fallback if the profile is missing. The legacy `user_id`, `user_name`, and `user_photo_url` fields remain readable so existing notes do not need an immediate destructive migration.
 
+## Stars
+
+```text
+noteStars/{noteId}/{uid}: true
+```
+
+Only the matching non-anonymous Firebase account can add or remove its vote.
+Whole-note updates cannot modify votes. Inline `notes/{id}/stars` is no longer
+accepted; see [the release 2 rollout](release-2-rollout.md) for migration.
+
 ## Presence
 
 ```text
-presence/{sessionOrAccountId}
-  id: string
-  username: string
-  isAnonymous: boolean
-  photoURL?: HTTPS URL
-  online: boolean
-  last_changed: server timestamp
+presenceV2/{uid}/{connectionId}
+  since: server timestamp
+  last_seen: server timestamp
+  guest: boolean
 ```
 
-Presence is public and temporary. It never contains an email address. New clients no longer read or write the old `notes/presence` path.
+Each connection owns a separate record beneath its authenticated UID. Guest
+presence uses tab-local Firebase Anonymous Auth. Names and photos are resolved
+from public profiles, never accepted from presence records. A person is online
+while any connection has refreshed within 90 seconds. Clients refresh every 30 seconds. Disconnect cleanup is registered before publishing
+presence. The legacy `presence` path is closed.
 
-During the rules rollout, clients also write `name` with the same value as `username` so sessions using the previous presence validator can reconnect. The rules reject a different value, and the compatibility field can be removed after every deployed client uses the new rules.
+## Validation
+
+Note text is limited to 10,000 UTF-16 code units, colors to the supported palette,
+positions to ±1,000,000 canvas pixels, and dimensions to the bounds above.
+Creation timestamps are immutable. Author snapshots and legacy attribution are
+immutable on existing notes. Unknown fields are rejected. API request bodies
+are limited to 64 KiB; database rules enforce field validation on direct writes.

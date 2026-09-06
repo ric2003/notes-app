@@ -1,3 +1,8 @@
+import {
+  readNoteInput,
+  validateNoteInput,
+  NoteInputError,
+} from "@/lib/note-validation";
 import { NextResponse } from "next/server";
 import { normalizeNoteRecord, normalizeNotesCollection } from "@/lib/notes";
 import { normalizePublicProfile } from "@/lib/profiles";
@@ -58,6 +63,11 @@ export async function GET() {
     const notes = normalizeNotesCollection(await res.json());
     return NextResponse.json({ notes });
   } catch (error: unknown) {
+    if (error instanceof NoteInputError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       {
         error: "Failed to load notes",
@@ -75,8 +85,15 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CreateNotePayload;
+    const input = await readNoteInput(req);
+    validateNoteInput(input, true);
+    const body = input as CreateNotePayload;
     const authToken = getBearerToken(req);
+    if (body.author_id != null && !authToken)
+      return NextResponse.json(
+        { error: "Sign in before publishing an attributed note" },
+        { status: 401 },
+      );
     const requestedAuthorId =
       authToken && typeof body.author_id === "string" ? body.author_id : null;
     let authorProfile = null;
@@ -150,6 +167,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ note }, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof NoteInputError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       {
         error: "Failed to create note",

@@ -477,7 +477,7 @@ async function runNoteResizeChecks(client) {
   await client.send("Runtime.evaluate", {
     awaitPromise: true,
     expression: `(async () => {
-      localStorage.removeItem("notesAppPendingUpdates");
+      localStorage.removeItem(window.__notesQueueKey("notesAppPendingUpdates"));
       const zoomOut = [...document.querySelectorAll('[aria-label="Zoom out"]')]
         .find((button) => button.getBoundingClientRect().width > 0);
       zoomOut?.click();
@@ -522,7 +522,7 @@ async function runNoteResizeChecks(client) {
       const card = container?.firstElementChild;
       const handle = container?.querySelector('[data-note-resize-handle]');
       const layer = container?.parentElement;
-      const pending = JSON.parse(localStorage.getItem('notesAppPendingUpdates') || '[]');
+      const pending = JSON.parse(localStorage.getItem(window.__notesQueueKey('notesAppPendingUpdates')) || '[]');
       return {
         width: Number.parseFloat(card.style.width),
         height: Number.parseFloat(card.style.height),
@@ -929,6 +929,131 @@ async function runLandscapeTouchLayoutChecks(client) {
   });
 }
 
+async function runTabQueueChecks(client, debugPort, fixtureSource) {
+  async function evaluate(tab, expression) {
+    const result = await tab.send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (result.exceptionDetails)
+      throw Error(
+        result.exceptionDetails.exception?.description ??
+          result.exceptionDetails.text,
+      );
+    return result.result.value;
+  }
+  async function ready(tab) {
+    await retry(async () => {
+      if (
+        !(await evaluate(
+          tab,
+          `!!document.querySelector('[data-note-id="mobile-gesture-fixture"]') && !!sessionStorage.getItem('notesQueueId')`,
+        ))
+      )
+        throw Error("Waiting for tab queue");
+    }, 30000);
+  }
+  async function type(tab, text) {
+    await evaluate(
+      tab,
+      `document.querySelector('[aria-label="Edit note"]').click();`,
+    );
+    await evaluate(
+      tab,
+      `document.querySelector('[aria-label="Note text"]').select()`,
+    );
+    await tab.send("Input.insertText", { text });
+  }
+  await client.send("Page.navigate", { url: appUrl });
+  await ready(client);
+  await type(client, "first-tab draft");
+  const firstId = await evaluate(
+    client,
+    `sessionStorage.getItem('notesQueueId')`,
+  );
+  const { targetId } = await client.send("Target.createTarget", {
+    url: "about:blank",
+  });
+  let second;
+  try {
+    const target = await retry(async () => {
+      const list = await (
+        await fetch(`http://127.0.0.1:${debugPort}/json/list`)
+      ).json();
+      const entry = list.find((t) => t.id === targetId);
+      if (!entry) throw Error("Waiting for second tab");
+      return entry;
+    });
+    second = new CdpClient(target.webSocketDebuggerUrl);
+    await second.send("Page.enable");
+    await second.send("Runtime.enable");
+    await second.send("Network.enable");
+    await second.send("Network.setBlockedURLs", {
+      urls: [
+        "*firebaseio.com/*",
+        "*firebasedatabase.app/*",
+        "*firebaseapp.com/*",
+        "*googleapis.com/*",
+        "*googleusercontent.com/*",
+      ],
+    });
+    await second.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: fixtureSource,
+    });
+    await second.send("Page.navigate", { url: appUrl });
+    await ready(second);
+    await type(second, "second-tab draft");
+    const secondId = await evaluate(
+      second,
+      `sessionStorage.getItem('notesQueueId')`,
+    );
+    if (firstId === secondId) throw Error("Two tabs share a save queue");
+    const firstText = await evaluate(
+      client,
+      `JSON.parse(localStorage.getItem(window.__notesQueueKey('notesAppPendingUpdates')))[0][1].content`,
+    );
+    if (firstText !== "first-tab draft")
+      throw Error("Second tab overwrote first tab draft");
+    await client.send("Page.reload");
+    await ready(client);
+    await retry(async () => {
+      const text = await evaluate(
+        client,
+        `document.querySelector('[data-note-id="mobile-gesture-fixture"] [role="button"]')?.textContent`,
+      );
+      if (text !== "first-tab draft")
+        throw Error("First tab did not recover its own draft");
+    });
+    console.log("PASS: two tabs retain independent drafts through reload");
+    await evaluate(
+      client,
+      `localStorage.removeItem(window.__notesQueueKey('notesAppPendingUpdates'))`,
+    );
+    await client.send("Target.closeTarget", { targetId });
+    second.close();
+    second = null;
+    await client.send("Page.reload");
+    await ready(client);
+    await retry(async () => {
+      const text = await evaluate(
+        client,
+        `document.querySelector('[data-note-id="mobile-gesture-fixture"] [role="button"]')?.textContent`,
+      );
+      if (text !== "second-tab draft")
+        throw Error("Closed tab draft was not recovered");
+    });
+    console.log("PASS: a closed tab draft is recovered by the remaining tab");
+    await evaluate(
+      client,
+      `Object.keys(localStorage).filter(key => key.startsWith('notesQueue:')).forEach(key => localStorage.removeItem(key))`,
+    );
+  } finally {
+    second?.close();
+    await client.send("Target.closeTarget", { targetId }).catch(() => {});
+  }
+}
+
 async function runSavingChecks(client) {
   async function evaluate(expression) {
     const response = await client.send("Runtime.evaluate", {
@@ -954,11 +1079,11 @@ async function runSavingChecks(client) {
       throw Error("Waiting for note");
   }, 30000);
   await evaluate(
-    `localStorage.removeItem('notesAppPendingUpdates'); document.querySelector('[aria-label="Edit note"]').click()`,
+    `Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Got it')?.click(); localStorage.removeItem(window.__notesQueueKey('notesAppPendingUpdates')); document.querySelector('[aria-label="Edit note"]').click()`,
   );
   await client.send("Input.insertText", { text: " unsaved draft" });
   const draft = await evaluate(
-    `JSON.parse(localStorage.getItem('notesAppPendingUpdates'))[0][1].content`,
+    `JSON.parse(localStorage.getItem(window.__notesQueueKey('notesAppPendingUpdates')))[0][1].content`,
   );
   if (!draft.endsWith(" unsaved draft"))
     throw Error("Typing was not persisted before blur");
@@ -1024,7 +1149,7 @@ async function runSavingChecks(client) {
     "PASS: undo works and failed deletion restores a note after reload",
   );
   await evaluate(
-    `localStorage.removeItem('notesAppPendingUpdates'); localStorage.removeItem('notesAppPendingDeletes')`,
+    `localStorage.removeItem(window.__notesQueueKey('notesAppPendingUpdates')); localStorage.removeItem(window.__notesQueueKey('notesAppPendingDeletes'))`,
   );
 }
 
@@ -1077,8 +1202,7 @@ async function main() {
         "*googleusercontent.com/*",
       ],
     });
-    await client.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `window.__NOTES_CANVAS_TEST_NOTES__ = [{
+    const fixtureSource = `window.__NOTES_CANVAS_TEST_NOTES__ = [{
         id: 'mobile-gesture-fixture',
         content: 'Mobile gesture fixture',
         color: 'blue',
@@ -1088,6 +1212,7 @@ async function main() {
         user_name: 'Test user',
         user_photo_url: 'https://lh3.googleusercontent.com/a/test-avatar',
       }];
+      window.__notesQueueKey = key => 'notesQueue:' + sessionStorage.getItem('notesQueueId') + ':' + key;
       window.__notesSaveMode = 'offline';
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -1098,7 +1223,9 @@ async function main() {
           throw new TypeError('Offline test');
         }
         return originalFetch(input, init);
-      };`,
+      };`;
+    await client.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: fixtureSource,
     });
     await client.send("Emulation.setDeviceMetricsOverride", {
       ...viewport,
@@ -1109,6 +1236,7 @@ async function main() {
       enabled: true,
       maxTouchPoints: 5,
     });
+    await runTabQueueChecks(client, debugPort, fixtureSource);
     await runSavingChecks(client);
     await runMobileLayoutChecks(client);
     await runLandscapeTouchLayoutChecks(client);

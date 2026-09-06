@@ -11,7 +11,7 @@ import {
   UserIcon,
   X,
 } from "lucide-react";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { UsernameTakenError, useProfile } from "@/contexts/ProfileContext";
 import {
   getUsernameError,
@@ -27,72 +27,7 @@ import {
   signInWithPopup,
   signInWithRedirect,
 } from "firebase/auth";
-import {
-  ref as dbRef,
-  onValue as onDbValue,
-  onDisconnect,
-  set,
-  remove,
-  serverTimestamp,
-  update,
-} from "firebase/database";
-
-const PRESENCE_ROOT = "presence";
-
-type PresenceEntry = {
-  id: string;
-  username?: string | null;
-  // Read old records until every active session has reconnected.
-  name?: string;
-  isAnonymous?: boolean;
-  online?: boolean;
-  photoURL?: string | null;
-};
-
-function presencePath(id: string) {
-  return `${PRESENCE_ROOT}/${id}`;
-}
-
-async function removePresence(id: string) {
-  await remove(dbRef(db, presencePath(id)));
-}
-
-async function updatePresenceStatus(
-  id: string,
-  updates: Record<string, unknown>,
-) {
-  await update(dbRef(db, presencePath(id)), updates);
-}
-
-async function establishPresence(
-  id: string,
-  entry: Omit<PresenceEntry, "id"> & { last_changed: unknown },
-) {
-  const activeRef = dbRef(db, presencePath(id));
-  await set(activeRef, { id, ...entry });
-
-  await onDisconnect(activeRef).update({
-    online: false,
-    last_changed: serverTimestamp(),
-  });
-}
-
-function readPresenceEntries(value: unknown): PresenceEntry[] {
-  if (!value || typeof value !== "object") return [];
-  return Object.entries(value as Record<string, unknown>)
-    .map(([id, raw]) => {
-      const entry =
-        typeof raw === "object" && raw !== null
-          ? (raw as Omit<PresenceEntry, "id">)
-          : {};
-      return {
-        id,
-        ...entry,
-        username: entry.username || entry.name || "Anonymous",
-      };
-    })
-    .filter((entry) => entry.online);
-}
+import { usePresence } from "@/hooks/usePresence";
 
 interface UserProfilesProps {
   className?: string;
@@ -178,8 +113,7 @@ export default function UserProfiles({
 }: UserProfilesProps) {
   const { user, profile, identityState, needsUsername, claimUsername } =
     useProfile();
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<PresenceEntry[]>([]);
+  const { onlineUsers, myId, leavePresence } = usePresence();
   const [showAuthForm, setShowAuthForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -192,27 +126,9 @@ export default function UserProfiles({
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const presenceRef = useRef<HTMLDivElement | null>(null);
   const accountRef = useRef<HTMLDivElement | null>(null);
-  const prevPresenceIdRef = useRef<string | null>(null);
 
   // Auth modes and inputs
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-
-  // Ensure we have a stable anonymous session identifier for presence
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const existing = window.localStorage.getItem("notesAppSessionId");
-    if (existing) {
-      setSessionId(existing);
-      return;
-    }
-    const generated =
-      typeof crypto !== "undefined" &&
-      (crypto as { randomUUID: () => string }).randomUUID
-        ? (crypto as { randomUUID: () => string }).randomUUID()
-        : `anon_${Math.random().toString(36).slice(2)}`;
-    window.localStorage.setItem("notesAppSessionId", generated);
-    setSessionId(generated);
-  }, []);
 
   // Close presence popover on outside click or Escape
   useEffect(() => {
@@ -248,65 +164,13 @@ export default function UserProfiles({
   useEffect(() => {
     if (!user) return;
     setShowAuthForm(false);
-    if (sessionId) void removePresence(sessionId).catch(() => {});
-  }, [sessionId, user]);
+  }, [user]);
 
   useEffect(() => {
     if (!needsUsername || !user) return;
     setUsernameInput(suggestUsername(user.displayName, user.email));
     setUsernameError(null);
   }, [needsUsername, user]);
-
-  // Keep presence up to date in Realtime Database
-  useEffect(() => {
-    if (!sessionId) return;
-
-    // Mark previous presence identity offline when switching identities
-    const newId = user?.uid ?? sessionId;
-    const prevId = prevPresenceIdRef.current;
-    if (prevId && prevId !== newId) {
-      void updatePresenceStatus(prevId, {
-        online: false,
-        last_changed: serverTimestamp(),
-      }).catch(() => {});
-    }
-
-    const connectedRef = dbRef(db, ".info/connected");
-    const unsubscribe = onDbValue(connectedRef, (snap) => {
-      const isConn = snap.val() === true;
-      if (!isConn) return;
-      if (user && !profile) return;
-
-      const id = user?.uid ?? sessionId;
-      const username = profile?.username || "Anonymous";
-      void establishPresence(id, {
-        username,
-        // Transitional copy for sessions running the previous rules.
-        name: username,
-        isAnonymous: !user,
-        photoURL: profile?.photo_url ?? user?.photoURL ?? null,
-        online: true,
-        last_changed: serverTimestamp(),
-      }).catch(() => {});
-
-      // Track current presence identity
-      prevPresenceIdRef.current = id;
-    });
-
-    return () => {
-      unsubscribe();
-      // Do not force set offline here; onDisconnect will handle abrupt closes
-    };
-  }, [profile, user, sessionId]);
-
-  // Subscribe to presence list
-  useEffect(() => {
-    return onDbValue(
-      dbRef(db, PRESENCE_ROOT),
-      (snapshot) => setOnlineUsers(readPresenceEntries(snapshot.val())),
-      () => setOnlineUsers([]),
-    );
-  }, []);
 
   const submitAuth = async () => {
     try {
@@ -377,13 +241,7 @@ export default function UserProfiles({
 
   const handleLogout = async () => {
     try {
-      // Immediately mark current user presence offline to avoid duplicates
-      if (user?.uid) {
-        await updatePresenceStatus(user.uid, {
-          online: false,
-          last_changed: serverTimestamp(),
-        }).catch(() => {});
-      }
+      await leavePresence();
       await signOut(auth);
       setShowProfileDetails(false);
     } catch {
@@ -443,16 +301,15 @@ export default function UserProfiles({
     return palette[hash % palette.length];
   };
 
-  const myId = user?.uid ?? sessionId ?? undefined;
   const totalOnline = onlineUsers.length;
   const otherUsers = useMemo(
     () => onlineUsers.filter((u) => u.id !== (myId ?? "")),
     [onlineUsers, myId],
   );
   const onlineLabel = useMemo(() => {
-    if (totalOnline <= 1) return "Only you";
+    if (totalOnline === 1 && onlineUsers[0]?.id === myId) return "Only you";
     return `${totalOnline} online`;
-  }, [totalOnline]);
+  }, [totalOnline, onlineUsers, myId]);
 
   return (
     <div className={`relative flex min-w-0 items-center gap-2 ${className}`}>

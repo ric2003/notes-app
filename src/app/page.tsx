@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ref, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import UserProfiles from "@/components/UserProfiles";
@@ -35,32 +35,47 @@ type ToastItem = {
 };
 
 function HomeContent() {
+  const [noteStars, setNoteStars] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+  const starring = useRef(new Set<string>());
   const [notes, setNotes] = useState<NoteData[]>([]);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const { user, profile, profiles } = useProfile();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [showPublicNotice, setShowPublicNotice] = useState(true);
+  useEffect(() => {
+    try {
+      setShowPublicNotice(
+        localStorage.getItem("notesPublicNoticeDismissed") !== "1",
+      );
+    } catch {}
+  }, []);
   const [isCreating, setIsCreating] = useState(false);
   const isCreatingRef = useRef(false);
 
-  function showToast(
-    message: string,
-    type: "info" | "success" | "warning" | "error" = "info",
-    durationMs = 2500,
-    action?: ToastAction,
-  ) {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, message, type, action }]);
-    window.setTimeout(() => {
-      dismissToast(id);
-    }, durationMs);
-  }
+  const showToast = useCallback(
+    (
+      message: string,
+      type: "info" | "success" | "warning" | "error" = "info",
+      durationMs = 2500,
+      action?: ToastAction,
+    ) => {
+      const id = Date.now() + Math.floor(Math.random() * 1000);
+      setToasts((prev) => [...prev, { id, message, type, action }]);
+      window.setTimeout(() => {
+        setToasts((previous) => previous.filter((toast) => toast.id !== id));
+      }, durationMs);
+    },
+    [],
+  );
 
   function dismissToast(id: number) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
-  const { updateNote, mergeWithPending, flush, sync, status } =
+  const { updateNote, mergeWithPending, flush, sync, status, isQueueReady } =
     useNoteUpdateQueue({ setNotes });
 
   useEffect(() => {
@@ -164,36 +179,47 @@ function HomeContent() {
     }
   }
 
+  useEffect(
+    () =>
+      onValue(
+        ref(db, "noteStars"),
+        (snapshot) => {
+          setNoteStars(snapshot.val() ?? {});
+        },
+        () =>
+          showToast(
+            "Couldn't load stars. Please reload to try again.",
+            "error",
+          ),
+      ),
+    [showToast],
+  );
+
   async function toggleStar(noteId: string) {
     const uid = user?.uid;
     if (!uid) {
       showToast("Please log in to star notes.", "warning");
       return;
     }
-
-    // Optimistic UI update
-    setNotes((prev) =>
-      prev.map((n) => {
-        if (n.id !== noteId) return n;
-        const currentStars = n.stars || {};
-        const isStarred = !!currentStars[uid];
-        const nextStars = { ...currentStars } as Record<string, boolean>;
-        if (isStarred) {
-          delete nextStars[uid];
-        } else {
-          nextStars[uid] = true;
-        }
-        return { ...n, stars: nextStars };
-      }),
-    );
-
+    if (starring.current.has(noteId)) return;
+    starring.current.add(noteId);
+    const previous = noteStars[noteId]?.[uid] === true;
+    setNoteStars((current) => ({
+      ...current,
+      [noteId]: { ...current[noteId], [uid]: !previous },
+    }));
     try {
-      const starRef = ref(db, `notes/${noteId}/stars/${uid}`);
-      await runTransaction(starRef, (current) => {
-        return current ? null : true;
-      });
-    } catch (error) {
-      console.error("Failed to toggle star:", error);
+      await runTransaction(ref(db, `noteStars/${noteId}/${uid}`), () =>
+        previous ? null : true,
+      );
+    } catch {
+      setNoteStars((current) => ({
+        ...current,
+        [noteId]: { ...current[noteId], [uid]: previous },
+      }));
+      showToast("Couldn't save your star. Please try again.", "error");
+    } finally {
+      starring.current.delete(noteId);
     }
   }
 
@@ -329,6 +355,7 @@ function HomeContent() {
     >
       {/* Full-screen canvas */}
       <div
+        inert={!isQueueReady}
         ref={containerRef}
         className={`absolute inset-0 prevent-zoom ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
         onWheel={handleWheel}
@@ -340,7 +367,14 @@ function HomeContent() {
         onClick={handleCanvasClick}
       >
         <NotesCanvas
-          notes={notes}
+          notes={notes.map((note) => ({
+            ...note,
+            stars: Object.fromEntries(
+              Object.entries(noteStars[note.id] ?? {}).filter(
+                ([, value]) => value === true,
+              ),
+            ),
+          }))}
           isDragging={isDragging}
           isResizing={isResizing}
           editingNote={editingNote}
@@ -389,7 +423,7 @@ function HomeContent() {
               createBox(window.innerWidth / 2, window.innerHeight / 2);
             }
           }}
-          disabled={isCreating}
+          disabled={isCreating || !isQueueReady}
           aria-label={isCreating ? "Creating note" : "Create note"}
           className="group flex h-14 min-w-11 shrink-0 items-center justify-center gap-2 px-3 py-2.5 font-medium text-gray-700 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-indigo-500 sm:gap-2.5 sm:px-5"
         >
@@ -480,6 +514,26 @@ function HomeContent() {
           </div>
         ))}
       </div>
+
+      {showPublicNotice && (
+        <aside className="absolute bottom-24 left-1/2 z-[60] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 shadow-sm">
+          <p>
+            This board is public. Anyone can read, edit, move, or delete any
+            note. Keep private information off the board.
+          </p>
+          <button
+            className="mt-2 min-h-11 rounded-lg border border-amber-300 px-3 font-medium"
+            onClick={() => {
+              setShowPublicNotice(false);
+              try {
+                localStorage.setItem("notesPublicNoticeDismissed", "1");
+              } catch {}
+            }}
+          >
+            Got it
+          </button>
+        </aside>
+      )}
 
       {/* Wordmark + purpose — also satisfies Google OAuth branding checks */}
       <div className="hidden pointer-fine:block fixed bottom-1 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">

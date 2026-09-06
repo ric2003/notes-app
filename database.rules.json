@@ -6,46 +6,58 @@
       ".read": true,
       "$noteId": {
         ".read": true,
-        ".write": "$noteId !== 'presence'",
-        ".validate": "(data.exists() && newData.child('author_id').val() === data.child('author_id').val() && newData.child('author_username_snapshot').val() === data.child('author_username_snapshot').val() && newData.child('author_photo_snapshot').val() === data.child('author_photo_snapshot').val()) || (!data.exists() && !newData.child('user_id').exists() && !newData.child('user_name').exists() && !newData.child('user_photo_url').exists() && ((!newData.child('author_id').exists() && !newData.child('author_username_snapshot').exists() && !newData.child('author_photo_snapshot').exists()) || (auth != null && newData.child('author_id').val() === auth.uid && newData.child('author_username_snapshot').val() === root.child('profiles').child(auth.uid).child('username').val() && newData.child('author_photo_snapshot').val() === root.child('profiles').child(auth.uid).child('photo_url').val())))",
+        ".write": "$noteId.matches(/^[a-zA-Z0-9_-]{1,128}$/) && $noteId !== 'presence'",
+        ".validate": "newData.hasChildren(['content','color','position_x','position_y','created_at','edited_at']) && ((data.exists() && newData.child('author_id').val() === data.child('author_id').val() && newData.child('author_username_snapshot').val() === data.child('author_username_snapshot').val() && newData.child('author_photo_snapshot').val() === data.child('author_photo_snapshot').val()) || (!data.exists() && !newData.child('user_id').exists() && !newData.child('user_name').exists() && !newData.child('user_photo_url').exists() && ((!newData.child('author_id').exists() && !newData.child('author_username_snapshot').exists() && !newData.child('author_photo_snapshot').exists()) || (auth != null && newData.child('author_id').val() === auth.uid && newData.child('author_username_snapshot').val() === root.child('profiles').child(auth.uid).child('username').val() && newData.child('author_photo_snapshot').val() === root.child('profiles').child(auth.uid).child('photo_url').val())))) && (!data.exists() || (newData.child('user_id').val() === data.child('user_id').val() && newData.child('user_name').val() === data.child('user_name').val() && newData.child('user_photo_url').val() === data.child('user_photo_url').val()))",
         "width": {
           ".validate": "newData.isNumber() && newData.val() >= 240 && newData.val() <= 960"
         },
         "height": {
           ".validate": "newData.isNumber() && newData.val() >= 180 && newData.val() <= 720"
-        }
-      }
-    },
-    "presence": {
-      ".read": true,
-      "$id": {
-        ".write": true,
-        ".validate": "newData.hasChildren(['id','username','online','last_changed']) && newData.child('id').val() === $id && newData.child('username').isString() && newData.child('username').val().length >= 3 && newData.child('username').val().length <= 24 && (!newData.child('name').exists() || newData.child('name').val() === newData.child('username').val()) && newData.child('online').isBoolean() && !newData.child('email').exists()",
-        "id": {
-          ".validate": "newData.isString() && newData.val() === $id"
         },
-        "username": {
-          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 24"
+        "content": {
+          ".validate": "newData.isString() && newData.val().length <= 10000"
         },
-        "name": {
-          ".validate": "newData.isString()"
+        "color": {
+          ".validate": "newData.isString() && newData.val().matches(/^(yellow|blue|green|pink|purple|orange)$/)"
         },
-        "isAnonymous": {
-          ".validate": "newData.isBoolean()"
+        "position_x": {
+          ".validate": "newData.isNumber() && newData.val() >= -1000000 && newData.val() <= 1000000"
         },
-        "online": {
-          ".validate": "newData.isBoolean()"
+        "position_y": {
+          ".validate": "newData.isNumber() && newData.val() >= -1000000 && newData.val() <= 1000000"
         },
-        "photoURL": {
-          ".validate": "newData.isString() && newData.val().matches(/^https:\\/\\//)"
+        "created_at": {
+          ".validate": "newData.isNumber() && ((data.exists() && newData.val() === data.val()) || (!data.exists() && newData.val() === now))"
         },
-        "last_changed": {
-          ".validate": "newData.isNumber()"
+        "edited_at": {
+          ".validate": "newData.isNumber() && newData.val() <= now && newData.val() >= newData.parent().child('created_at').val()"
+        },
+        "author_id": {
+          ".validate": "newData.isString() && newData.val().length <= 2048"
+        },
+        "author_username_snapshot": {
+          ".validate": "newData.isString() && newData.val().length <= 2048"
+        },
+        "author_photo_snapshot": {
+          ".validate": "newData.isString() && newData.val().length <= 2048"
+        },
+        "user_id": {
+          ".validate": "data.exists() && newData.val() === data.val()"
+        },
+        "user_name": {
+          ".validate": "data.exists() && newData.val() === data.val()"
+        },
+        "user_photo_url": {
+          ".validate": "data.exists() && newData.val() === data.val()"
         },
         "$other": {
           ".validate": false
         }
       }
+    },
+    "presence": {
+      ".read": false,
+      ".write": false
     },
     "profiles": {
       ".read": true,
@@ -74,6 +86,36 @@
       "$username": {
         ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.val() === auth.uid && newData.val() === auth.uid) || (data.val() === auth.uid && !newData.exists() && !root.child('profiles').child(auth.uid).exists()))",
         ".validate": "$username.matches(/^[a-z0-9_]{3,24}$/) && $username !== 'admin' && $username !== 'anonymous' && $username !== 'live_notes' && $username !== 'notes' && $username !== 'presence' && $username !== 'system' && newData.val() === auth.uid"
+      }
+    },
+    "presenceV2": {
+      ".read": true,
+      "$uid": {
+        "$connection": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['since','last_seen','guest'])",
+          "since": {
+            ".validate": "newData.isNumber() && newData.val() <= now"
+          },
+          "guest": {
+            ".validate": "newData.isBoolean() && newData.val() === (auth.token.firebase.sign_in_provider === 'anonymous')"
+          },
+          "$other": {
+            ".validate": false
+          },
+          "last_seen": {
+            ".validate": "newData.isNumber() && newData.val() <= now && newData.val() >= newData.parent().child('since').val()"
+          }
+        }
+      }
+    },
+    "noteStars": {
+      ".read": true,
+      "$noteId": {
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && (!newData.exists() || root.child('notes').child($noteId).exists())",
+          ".validate": "newData.val() === true"
+        }
       }
     }
   }

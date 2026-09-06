@@ -1,3 +1,4 @@
+import type { QueueStorage } from "./tab-queue-storage";
 import type { NoteData } from "./notes";
 import { parsePendingUpdates } from "./pending-note-updates";
 
@@ -44,7 +45,7 @@ export class NoteSync {
   private running = new Map<string, Promise<void>>();
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setTimeout>;
-  private storage?: Storage;
+  private storage?: QueueStorage;
   private active = false;
   private storageError = false;
   private snapshot: Snapshot = {
@@ -68,13 +69,19 @@ export class NoteSync {
     };
   };
 
-  start(storage?: Storage) {
+  start(storage?: QueueStorage) {
+    const hadEdits = this.updates.size > 0;
+    clearTimeout(this.timer);
     this.storage = storage;
     this.active = true;
     this.storageError = !storage;
     try {
       const stored = storage?.getItem(UPDATE_KEY);
-      if (stored) this.updates = parsePendingUpdates(stored);
+      if (stored)
+        this.updates = new Map([
+          ...parsePendingUpdates(stored),
+          ...this.updates,
+        ]);
       const deleted: unknown = JSON.parse(storage?.getItem(DELETE_KEY) ?? "[]");
       if (Array.isArray(deleted)) {
         for (const entry of deleted) {
@@ -84,20 +91,23 @@ export class NoteSync {
             typeof entry.note.content === "string" &&
             Number.isFinite(entry.dueAt)
           ) {
-            this.deletions.set(entry.note.id, entry);
+            if (!this.deletions.has(entry.note.id))
+              this.deletions.set(entry.note.id, entry);
           }
         }
       }
     } catch {
       this.storageError = true;
     }
-    this.emit();
+    if (hadEdits) this.persist();
+    else this.emit();
     this.schedule(0);
   }
 
   stop() {
     this.active = false;
     clearTimeout(this.timer);
+    return Promise.all([...this.running.values()]);
   }
 
   private emit() {
