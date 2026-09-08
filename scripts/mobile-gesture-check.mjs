@@ -1101,12 +1101,23 @@ async function runSavingChecks(client) {
   );
   await client.send("Input.insertText", { text: " more" });
   await retry(async () => {
-    const text = await evaluate(
-      `document.querySelector('[aria-label="Your unsynced text"]')?.value`,
-    );
-    if (text !== draft + " more")
-      throw Error("Conflict did not retain local draft");
+    if (
+      !(await evaluate(
+        `document.querySelector('[aria-label="Note sync"] button')?.textContent.includes('Review changes')`,
+      ))
+    )
+      throw Error("Conflict status missing");
   }, 10000);
+  await evaluate(
+    `document.querySelector('[aria-label="Note sync"] [aria-expanded]').click()`,
+  );
+  if (
+    (await evaluate(
+      `document.querySelector('[aria-label="Your unsynced text"]')?.value`,
+    )) !==
+    draft + " more"
+  )
+    throw Error("Conflict did not retain local draft");
   await evaluate(
     `Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Use latest text').click()`,
   );
@@ -1140,7 +1151,7 @@ async function runSavingChecks(client) {
   await retry(async () => {
     if (
       !(await evaluate(
-        `document.body.textContent.includes("Couldn't delete") && !!document.querySelector('[data-note-id="mobile-gesture-fixture"]')`,
+        `document.querySelector('[aria-label="Note sync"] button')?.textContent.includes("Review changes") && !!document.querySelector('[data-note-id="mobile-gesture-fixture"]')`,
       ))
     )
       throw Error("Failed deletion did not restore note after reload");

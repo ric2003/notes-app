@@ -44,14 +44,6 @@ function HomeContent() {
   const [isConnected, setIsConnected] = useState(false);
   const { user, profile, profiles } = useProfile();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [showPublicNotice, setShowPublicNotice] = useState(true);
-  useEffect(() => {
-    try {
-      setShowPublicNotice(
-        localStorage.getItem("notesPublicNoticeDismissed") !== "1",
-      );
-    } catch {}
-  }, []);
   const [isCreating, setIsCreating] = useState(false);
   const isCreatingRef = useRef(false);
 
@@ -467,11 +459,13 @@ function HomeContent() {
 
       <div
         className="absolute left-1/2 -translate-x-1/2 z-[60] flex w-full max-w-md flex-col items-center gap-2 px-4"
-        style={{ top: "calc(env(safe-area-inset-top) + 5rem)" }}
+        style={{
+          bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 5rem)",
+        }}
         aria-live="polite"
         aria-atomic="true"
       >
-        {toasts.map((t) => (
+        {toasts.slice(-1).map((t) => (
           <div
             key={t.id}
             className={`flex max-w-full items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border backdrop-blur-xl animate-scale-in
@@ -514,26 +508,6 @@ function HomeContent() {
           </div>
         ))}
       </div>
-
-      {showPublicNotice && (
-        <aside className="absolute bottom-24 left-1/2 z-[60] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 shadow-sm">
-          <p>
-            This board is public. Anyone can read, edit, move, or delete any
-            note. Keep private information off the board.
-          </p>
-          <button
-            className="mt-2 min-h-11 rounded-lg border border-amber-300 px-3 font-medium"
-            onClick={() => {
-              setShowPublicNotice(false);
-              try {
-                localStorage.setItem("notesPublicNoticeDismissed", "1");
-              } catch {}
-            }}
-          >
-            Got it
-          </button>
-        </aside>
-      )}
 
       {/* Wordmark + purpose — also satisfies Google OAuth branding checks */}
       <div className="hidden pointer-fine:block fixed bottom-1 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">

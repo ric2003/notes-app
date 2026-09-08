@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Globe2 } from "lucide-react";
 import type { NoteData } from "@/lib/notes";
 import type { NoteSync } from "@/lib/note-sync";
 
@@ -16,52 +18,107 @@ export default function SyncStatus({
   connected,
   onRestore,
 }: Props) {
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!container.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        container.current
+          ?.querySelector<HTMLButtonElement>("[aria-expanded]")
+          ?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
   const attention = status.problems.length + status.failedDeletes.length;
   const label = attention
-    ? "Changes need review"
-    : status.saving
-      ? "Saving…"
-      : status.pending
-        ? "Changes waiting to sync"
-        : connected
-          ? "Saved"
-          : "Disconnected";
+    ? `Review changes (${attention})`
+    : status.pending && status.storageError
+      ? "Keep tab open"
+      : status.saving
+        ? "Saving…"
+        : status.pending
+          ? "Waiting to sync"
+          : !connected
+            ? "Offline"
+            : null;
+  const lastDelete = status.pendingDeletes.at(-1);
   const buttonClass =
     "min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-indigo-500";
   return (
     <aside
+      ref={container}
       className="absolute left-3 z-[65] max-w-[calc(100vw-1.5rem)] sm:left-4"
-      style={{ top: "calc(max(0.75rem, env(safe-area-inset-top)) + 4rem)" }}
+      style={{ top: "calc(max(0.75rem, env(safe-area-inset-top)) + 3.75rem)" }}
       aria-label="Note sync"
     >
-      <div
-        role="status"
-        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-1 text-xs text-gray-700 shadow-sm"
-      >
-        <span
-          aria-hidden="true"
-          className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`}
-        />
-        {label}
-        {!connected && status.pending > 0 ? " · Disconnected" : ""}
-      </div>
-      {status.storageError && (
-        <p
-          role="alert"
-          className="mt-1 max-w-xs rounded-lg bg-amber-50 p-2 text-xs text-amber-900"
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="board-status-details"
+          onClick={() => setOpen((current) => !current)}
+          className="flex min-h-11 items-center gap-1.5 rounded-lg bg-white/95 px-2.5 text-xs text-gray-600 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
         >
-          Browser storage is unavailable. Keep this tab open until your changes
-          finish saving.
-        </p>
-      )}
-      {(attention > 0 || status.pendingDeletes.length > 0) && (
-        <details
-          open
+          <Globe2 aria-hidden="true" className="h-3.5 w-3.5" />
+          Public board
+          {label && (
+            <span
+              role="status"
+              className={
+                attention || (status.pending && status.storageError)
+                  ? "font-medium text-amber-800"
+                  : "text-gray-500"
+              }
+            >
+              · {label}
+            </span>
+          )}
+          <ChevronDown
+            aria-hidden="true"
+            className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+        {!open && lastDelete && (
+          <button
+            type="button"
+            disabled={lastDelete.dueAt <= Date.now()}
+            className="min-h-11 rounded-lg bg-white/95 px-3 text-xs font-medium text-gray-700 shadow-sm disabled:text-gray-400 focus-visible:outline-2 focus-visible:outline-indigo-500"
+            onClick={() => {
+              sync.undoDelete(lastDelete.note.id);
+              onRestore(lastDelete.note);
+            }}
+          >
+            {lastDelete.dueAt <= Date.now() ? "Deleting…" : "Undo"}
+          </button>
+        )}
+      </div>
+      {open && (
+        <section
+          id="board-status-details"
+          aria-label="Board details"
           className="mt-2 max-h-[55dvh] w-80 max-w-full overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
         >
-          <summary className="cursor-pointer text-sm font-medium">
-            {attention ? "Review changes" : "Pending deletion"}
-          </summary>
+          <p className="text-sm leading-relaxed text-gray-600">
+            Anyone can read and change these notes. Keep private information off
+            this board.
+          </p>
+          {status.storageError && (
+            <p className="mt-2 text-sm leading-relaxed text-gray-600">
+              Draft recovery isn’t available in this browser connection. Keep
+              the tab open while changes are saving.
+            </p>
+          )}
           <div className="mt-2 space-y-4">
             {status.pendingDeletes.map(({ note, dueAt }) => (
               <div key={note.id} className="space-y-2 text-sm">
@@ -138,7 +195,10 @@ export default function SyncStatus({
                   {problem.remote && (
                     <button
                       className={buttonClass}
-                      onClick={() => sync.resolve(problem.id, true)}
+                      onClick={() => {
+                        sync.resolve(problem.id, true);
+                        setOpen(false);
+                      }}
                     >
                       Keep my text
                     </button>
@@ -147,6 +207,7 @@ export default function SyncStatus({
                     className={buttonClass}
                     onClick={() => {
                       sync.resolve(problem.id, false);
+                      setOpen(false);
                       if (problem.remote) onRestore(problem.remote);
                     }}
                   >
@@ -158,7 +219,7 @@ export default function SyncStatus({
               </div>
             ))}
           </div>
-        </details>
+        </section>
       )}
     </aside>
   );
