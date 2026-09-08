@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Globe2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { NoteData } from "@/lib/notes";
 import type { NoteSync } from "@/lib/note-sync";
 
@@ -55,6 +55,7 @@ export default function SyncStatus({
   const lastDelete = status.pendingDeletes.at(-1);
   const buttonClass =
     "min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-indigo-500";
+  if (!label && !lastDelete && !open) return null;
   return (
     <aside
       ref={container}
@@ -70,9 +71,7 @@ export default function SyncStatus({
           onClick={() => setOpen((current) => !current)}
           className="flex min-h-11 items-center gap-1.5 rounded-lg bg-white/95 px-2.5 text-xs text-gray-600 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
         >
-          <Globe2 aria-hidden="true" className="h-3.5 w-3.5" />
-          Public board
-          {label && (
+          {(label || open) && (
             <span
               role="status"
               className={
@@ -81,7 +80,7 @@ export default function SyncStatus({
                   : "text-gray-500"
               }
             >
-              · {label}
+              {label || "Save status"}
             </span>
           )}
           <ChevronDown
@@ -109,10 +108,6 @@ export default function SyncStatus({
           aria-label="Board details"
           className="mt-2 max-h-[55dvh] w-80 max-w-full overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
         >
-          <p className="text-sm leading-relaxed text-gray-600">
-            Anyone can read and change these notes. Keep private information off
-            this board.
-          </p>
           {status.storageError && (
             <p className="mt-2 text-sm leading-relaxed text-gray-600">
               Draft recovery isn’t available in this browser connection. Keep

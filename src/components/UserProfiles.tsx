@@ -97,6 +97,20 @@ function GoogleIcon() {
   );
 }
 
+function PublicBoardInfo() {
+  return (
+    <details className="mt-3 border-t border-gray-100 text-sm text-gray-500">
+      <summary className="min-h-11 cursor-pointer content-center rounded-lg focus-visible:outline-2 focus-visible:outline-indigo-500">
+        Public board
+      </summary>
+      <p className="pb-3 text-xs leading-5">
+        Anyone can read, edit, move, or delete these notes. Keep private
+        information off this board.
+      </p>
+    </details>
+  );
+}
+
 function formatAccountDate(value?: string): string | null {
   if (!value) return null;
   const date = new Date(value);
@@ -541,12 +555,12 @@ export default function UserProfiles({
 
         {user && profile && showProfileDetails && (
           <div
-            className="fixed inset-0 z-[100] overflow-hidden bg-slate-50/98 px-4 sm:absolute sm:inset-auto sm:top-[calc(100%+8px)] sm:right-0 sm:w-96 sm:max-h-[calc(100dvh-5rem)] sm:overflow-y-auto sm:rounded-3xl sm:border sm:border-white/70 sm:bg-white/97 sm:p-5 sm:shadow-2xl sm:backdrop-blur-xl"
+            className="fixed inset-0 z-[100] overflow-y-auto bg-slate-50/98 px-4 sm:absolute sm:inset-auto sm:top-[calc(100%+8px)] sm:right-0 sm:w-96 sm:max-h-[calc(100dvh-5rem)] sm:overflow-y-auto sm:rounded-3xl sm:border sm:border-white/70 sm:bg-white/97 sm:p-5 sm:shadow-2xl sm:backdrop-blur-xl"
             role="dialog"
             aria-modal="true"
             aria-label="Your profile"
           >
-            <div className="mx-auto flex h-full w-full max-w-sm flex-col justify-center pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:block sm:h-auto sm:max-w-none sm:p-0">
+            <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:block sm:h-auto sm:max-w-none sm:p-0">
               <div className="rounded-3xl border border-gray-200/80 bg-white p-4 shadow-xl sm:contents">
                 <div className="mb-3 flex items-center justify-between sm:mb-5">
                   <div>
@@ -658,6 +672,7 @@ export default function UserProfiles({
                   )}
                 </div>
 
+                <PublicBoardInfo />
                 <p className="mt-4 hidden rounded-2xl bg-indigo-50 px-3.5 py-3 text-xs leading-5 text-indigo-700 sm:block">
                   Your username cannot be changed yet.{" "}
                   {signInMethod === "Google"
@@ -790,6 +805,7 @@ export default function UserProfiles({
                   <GoogleIcon />
                   <span>Continue with Google</span>
                 </button>
+                <PublicBoardInfo />
               </div>
             </div>
           </div>
