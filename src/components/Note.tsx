@@ -100,11 +100,14 @@ const Note: React.FC<NoteProps> = ({
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
-      year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+      year: date.getFullYear() !== now.getFullYear() ? "2-digit" : undefined,
     });
   };
 
   const colorStyles = NOTE_COLORS;
+  const compactFooter = width < 280;
+  const createdLabel = formatDate(createdAt);
+  const editedLabel = formatDate(editedAt);
 
   const currentStyle =
     colorStyles[color as NoteColorName] ?? colorStyles.yellow;
@@ -310,7 +313,7 @@ const Note: React.FC<NoteProps> = ({
           </div>
         ) : (
           <p
-            className="h-full overflow-hidden text-gray-800 leading-relaxed text-sm cursor-pointer hover:text-black transition-colors duration-200"
+            className="h-full overflow-hidden whitespace-pre-wrap break-words text-gray-800 leading-relaxed text-sm cursor-pointer hover:text-black transition-colors duration-200"
             onClick={handleEdit}
             role="button"
             tabIndex={0}
@@ -326,14 +329,14 @@ const Note: React.FC<NoteProps> = ({
       </div>
 
       {/* Note Footer */}
-      <div className="absolute bottom-4 left-4 right-12 flex min-w-0 items-end justify-between gap-2">
+      <div className="absolute bottom-4 left-4 right-12 flex h-8 min-w-0 items-center justify-between gap-2">
         {/* Date */}
-        <div className="flex min-w-0 items-center gap-2 text-[11px] text-gray-600">
-          <span className="font-medium">{formatDate(createdAt)}</span>
-          {editedAt && editedAt !== createdAt && (
-            <div className="flex items-center gap-1 bg-white/80 border border-gray-300/60 rounded-lg px-2 py-0.5">
-              <Pen size={9} className="text-gray-500" />
-              <span className="font-medium text-gray-700">
+        <div className="flex h-full min-w-0 max-w-[calc(100%-3.25rem)] shrink-0 items-center gap-2 whitespace-nowrap text-[11px] leading-5 text-gray-600">
+          <span className="min-w-0 truncate font-medium" title={createdAt ? new Date(createdAt).toLocaleString() : undefined}>{createdLabel}</span>
+          {editedAt && editedLabel !== createdLabel && (
+            <div className="flex min-w-0 items-center gap-1 bg-white/80 border border-gray-300/60 rounded-lg px-2 py-0.5" title={`Edited ${formatDate(editedAt)}`}>
+              <Pen size={9} className="shrink-0 text-gray-500" />
+              <span className="truncate font-medium text-gray-700">
                 {formatDate(editedAt)}
               </span>
             </div>
@@ -341,9 +344,9 @@ const Note: React.FC<NoteProps> = ({
         </div>
 
         {/* User */}
-        <div className="flex min-w-0 items-center gap-2 bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm px-2.5 py-1">
+        <div className={`flex min-w-0 max-w-[45%] items-center bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm py-1 ${compactFooter ? "shrink-0 px-1" : "gap-2 px-2.5"}`} title={createdBy} aria-label={createdBy}>
           <div
-            className={`flex h-5 w-5 items-center justify-center overflow-hidden shadow-sm ${createdByPhoto ? "rounded-full bg-cover bg-center" : "rounded-lg bg-indigo-400"}`}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden shadow-sm ${createdByPhoto ? "rounded-full bg-cover bg-center" : "rounded-lg bg-indigo-400"}`}
             style={
               createdByPhoto
                 ? { backgroundImage: `url(${JSON.stringify(createdByPhoto)})` }
@@ -358,7 +361,7 @@ const Note: React.FC<NoteProps> = ({
               </span>
             )}
           </div>
-          <span className="text-gray-500 font-medium truncate text-[11px] max-w-20">
+          <span className={compactFooter ? "sr-only" : "text-gray-500 font-medium truncate text-[11px] max-w-20"}>
             {createdBy}
           </span>
         </div>
