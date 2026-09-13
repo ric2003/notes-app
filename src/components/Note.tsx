@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { PencilIcon, TrashIcon, Paintbrush, Pen, Star } from "lucide-react";
+import { PencilIcon, TrashIcon, Paintbrush, Star, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import {
   NOTE_COLORS,
   NOTE_COLOR_NAMES,
@@ -64,6 +65,25 @@ const Note: React.FC<NoteProps> = ({
   const localContentRef = useRef(localContent);
   const [remoteChanged, setRemoteChanged] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const contentRef = useRef<HTMLParagraphElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [isReading, setIsReading] = useState(false);
+
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+    const measure = () =>
+      setIsOverflowing(element.scrollHeight > element.clientHeight + 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [localContent, isEditing]);
+
+  useEffect(() => {
+    if (isReading) dialogRef.current?.showModal();
+  }, [isReading]);
   const isMacPlatform =
     typeof window !== "undefined" &&
     /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -106,8 +126,9 @@ const Note: React.FC<NoteProps> = ({
 
   const colorStyles = NOTE_COLORS;
   const compactFooter = width < 280;
-  const createdLabel = formatDate(createdAt);
-  const editedLabel = formatDate(editedAt);
+  const dateLabel = formatDate(editedAt || createdAt);
+  const fullDate = (value?: string) =>
+    value ? new Date(value).toLocaleString() : "Unknown";
 
   const currentStyle =
     colorStyles[color as NoteColorName] ?? colorStyles.yellow;
@@ -312,39 +333,59 @@ const Note: React.FC<NoteProps> = ({
             </div>
           </div>
         ) : (
-          <p
-            className="h-full overflow-hidden whitespace-pre-wrap break-words text-gray-800 leading-relaxed text-sm cursor-pointer hover:text-black transition-colors duration-200"
-            onClick={handleEdit}
-            role="button"
-            tabIndex={0}
-            onKeyDown={handleContentKeyDown}
-          >
-            {localContent || (
-              <span className="text-gray-500 italic">
-                Click to add content...
-              </span>
+          <div className="flex h-full min-h-0 flex-col gap-1">
+            <p
+              ref={contentRef}
+              className="min-h-0 flex-1 overflow-hidden whitespace-pre-wrap break-words text-gray-800 leading-relaxed text-sm cursor-pointer hover:text-black transition-colors duration-200"
+              onClick={handleEdit}
+              role="button"
+              tabIndex={0}
+              onKeyDown={handleContentKeyDown}
+            >
+              {localContent || (
+                <span className="text-gray-500 italic">
+                  Click to add content...
+                </span>
+              )}
+            </p>
+            {isOverflowing && (
+              <button
+                className="shrink-0 self-start rounded py-1 text-xs font-medium text-gray-700 underline decoration-gray-500/50 underline-offset-4 hover:text-black focus-visible:outline-2 focus-visible:outline-indigo-500"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsReading(true);
+                }}
+              >
+                Read full note
+              </button>
             )}
-          </p>
+          </div>
         )}
       </div>
 
       {/* Note Footer */}
       <div className="absolute bottom-4 left-4 right-12 flex h-8 min-w-0 items-center justify-between gap-2">
         {/* Date */}
-        <div className="flex h-full min-w-0 max-w-[calc(100%-3.25rem)] shrink-0 items-center gap-2 whitespace-nowrap text-[11px] leading-5 text-gray-600">
-          <span className="min-w-0 truncate font-medium" title={createdAt ? new Date(createdAt).toLocaleString() : undefined}>{createdLabel}</span>
-          {editedAt && editedLabel !== createdLabel && (
-            <div className="flex min-w-0 items-center gap-1 bg-white/80 border border-gray-300/60 rounded-lg px-2 py-0.5" title={`Edited ${formatDate(editedAt)}`}>
-              <Pen size={9} className="shrink-0 text-gray-500" />
-              <span className="truncate font-medium text-gray-700">
-                {formatDate(editedAt)}
-              </span>
-            </div>
-          )}
-        </div>
+        <button
+          className="flex h-8 shrink-0 items-center rounded text-[11px] font-medium whitespace-nowrap text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-indigo-500"
+          title={`Created ${fullDate(createdAt)}\nEdited ${fullDate(editedAt || createdAt)}`}
+          aria-label="View note and timestamps"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setIsReading(true);
+          }}
+        >
+          {dateLabel}
+        </button>
 
         {/* User */}
-        <div className={`flex min-w-0 max-w-[45%] items-center bg-white/85 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm py-1 ${compactFooter ? "shrink-0 px-1" : "gap-2 px-2.5"}`} title={createdBy} aria-label={createdBy}>
+        <div
+          className={`flex h-8 min-w-0 items-center gap-1.5 ${compactFooter ? "shrink-0" : ""}`}
+          title={createdBy}
+          aria-label={createdBy}
+        >
           <div
             className={`flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden shadow-sm ${createdByPhoto ? "rounded-full bg-cover bg-center" : "rounded-lg bg-indigo-400"}`}
             style={
@@ -361,11 +402,59 @@ const Note: React.FC<NoteProps> = ({
               </span>
             )}
           </div>
-          <span className={compactFooter ? "sr-only" : "text-gray-500 font-medium truncate text-[11px] max-w-20"}>
+          <span
+            className={
+              compactFooter
+                ? "sr-only"
+                : "text-gray-500 font-medium truncate text-[11px] max-w-20"
+            }
+          >
             {createdBy}
           </span>
         </div>
       </div>
+
+      {isReading &&
+        createPortal(
+          <dialog
+            ref={dialogRef}
+            aria-label="Full note"
+            className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto overscroll-contain rounded-2xl border border-gray-300 p-6 text-gray-800 shadow-xl backdrop:bg-black/35"
+            style={{ backgroundColor: currentStyle.bg }}
+            onClose={() => setIsReading(false)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <span className="min-w-0 break-words text-sm font-medium">
+                {createdBy}
+              </span>
+              <button
+                autoFocus
+                aria-label="Close full note"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/60 hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-indigo-500"
+                onClick={() => dialogRef.current?.close()}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-base leading-relaxed">
+              {localContent || "This note is empty."}
+            </p>
+            <dl className="mt-6 border-t border-black/15 pt-4 text-xs leading-6 text-gray-700">
+              <div>
+                <dt className="inline font-medium">Created: </dt>
+                <dd className="inline">{fullDate(createdAt)}</dd>
+              </div>
+              <div>
+                <dt className="inline font-medium">Edited: </dt>
+                <dd className="inline">{fullDate(editedAt || createdAt)}</dd>
+              </div>
+            </dl>
+          </dialog>,
+          document.body,
+        )}
 
       {isResizing && (
         <div
