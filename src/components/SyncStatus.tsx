@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Undo2 } from "lucide-react";
+import { NOTE_COLORS, type NoteColorName } from "@/lib/noteColors";
 import type { NoteData } from "@/lib/notes";
 import type { NoteSync } from "@/lib/note-sync";
 
@@ -39,6 +40,8 @@ export default function SyncStatus({ sync, status, onRestore }: Props) {
   const lastDelete = status.pendingDeletes
     .filter((entry) => entry.dueAt > Date.now())
     .at(-1);
+  const undoColor =
+    NOTE_COLORS[lastDelete?.note.color as NoteColorName] ?? NOTE_COLORS.yellow;
   const buttonClass =
     "min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-indigo-500";
   if (!label && !lastDelete && !open) return null;
@@ -80,20 +83,30 @@ export default function SyncStatus({ sync, status, onRestore }: Props) {
           </button>
         )}
         {!open && lastDelete && (
-          <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] flex items-center gap-3 whitespace-nowrap rounded-2xl border border-gray-200 bg-white p-1.5 pl-4 shadow-lg">
-            <span role="status" className="text-sm text-gray-600">
+          <div
+            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] flex items-center gap-3 whitespace-nowrap rounded-2xl border p-1 pl-3.5 shadow-sm backdrop-blur-xl"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${undoColor.bg} 14%, white)`,
+              borderColor: `color-mix(in srgb, ${undoColor.border} 35%, white)`,
+            }}
+          >
+            <span role="status" className="text-xs text-gray-600">
               Note deleted
             </span>
             <button
               type="button"
               aria-label="Undo delete"
-              className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 active:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+              className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border px-3 text-sm font-medium text-gray-800 transition-[filter] hover:brightness-95 active:brightness-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700"
+              style={{
+                backgroundColor: undoColor.bg,
+                borderColor: undoColor.border,
+              }}
               onClick={() => {
                 sync.undoDelete(lastDelete.note.id);
                 onRestore(lastDelete.note);
               }}
             >
-              <Undo2 aria-hidden="true" size={18} />
+              <Undo2 aria-hidden="true" size={16} />
               Undo delete
             </button>
           </div>
