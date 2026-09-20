@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Undo2 } from "lucide-react";
 import type { NoteData } from "@/lib/notes";
 import type { NoteSync } from "@/lib/note-sync";
 
@@ -80,16 +80,23 @@ export default function SyncStatus({ sync, status, onRestore }: Props) {
           </button>
         )}
         {!open && lastDelete && (
-          <button
-            type="button"
-            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] min-h-11 rounded-lg bg-white/95 px-3 text-xs font-medium text-gray-700 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
-            onClick={() => {
-              sync.undoDelete(lastDelete.note.id);
-              onRestore(lastDelete.note);
-            }}
-          >
-            Undo
-          </button>
+          <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] flex items-center gap-3 whitespace-nowrap rounded-2xl border border-gray-200 bg-white p-1.5 pl-4 shadow-lg">
+            <span role="status" className="text-sm text-gray-600">
+              Note deleted
+            </span>
+            <button
+              type="button"
+              aria-label="Undo delete"
+              className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 active:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+              onClick={() => {
+                sync.undoDelete(lastDelete.note.id);
+                onRestore(lastDelete.note);
+              }}
+            >
+              <Undo2 aria-hidden="true" size={18} />
+              Undo delete
+            </button>
+          </div>
         )}
       </div>
       {open && (
