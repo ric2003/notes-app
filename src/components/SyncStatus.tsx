@@ -83,33 +83,22 @@ export default function SyncStatus({ sync, status, onRestore }: Props) {
           </button>
         )}
         {!open && lastDelete && (
-          <div
-            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] flex items-center gap-3 whitespace-nowrap rounded-2xl border p-1 pl-3.5 shadow-sm backdrop-blur-xl"
+          <button
+            type="button"
+            aria-label="Undo delete"
+            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border border-b-2 px-4 text-sm font-medium text-gray-800 hover:underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700"
             style={{
-              backgroundColor: `color-mix(in srgb, ${undoColor.bg} 14%, white)`,
-              borderColor: `color-mix(in srgb, ${undoColor.border} 35%, white)`,
+              backgroundColor: undoColor.bg,
+              borderColor: undoColor.border,
+            }}
+            onClick={() => {
+              sync.undoDelete(lastDelete.note.id);
+              onRestore(lastDelete.note);
             }}
           >
-            <span role="status" className="text-xs text-gray-600">
-              Note deleted
-            </span>
-            <button
-              type="button"
-              aria-label="Undo delete"
-              className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border px-3 text-sm font-medium text-gray-800 transition-[filter] hover:brightness-95 active:brightness-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700"
-              style={{
-                backgroundColor: undoColor.bg,
-                borderColor: undoColor.border,
-              }}
-              onClick={() => {
-                sync.undoDelete(lastDelete.note.id);
-                onRestore(lastDelete.note);
-              }}
-            >
-              <Undo2 aria-hidden="true" size={16} />
-              Undo delete
-            </button>
-          </div>
+            <Undo2 aria-hidden="true" size={16} strokeWidth={1.75} />
+            Undo delete
+          </button>
         )}
       </div>
       {open && (
