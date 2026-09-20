@@ -10,8 +10,9 @@ import {
 } from "react";
 import { acquireQueue, type QueueLease } from "@/lib/tab-queue-storage";
 import type { NoteData } from "@/lib/notes";
-import { NoteSync, type NoteUpdate } from "@/lib/note-sync";
-import { deleteNote, saveNoteUpdate } from "@/lib/note-client";
+import { NoteSync, NoteSaveError, type NoteUpdate } from "@/lib/note-sync";
+import { auth } from "@/lib/firebase";
+import { deleteNote, saveNoteUpdate, createNote } from "@/lib/note-client";
 
 export function useNoteUpdateQueue({
   setNotes,
@@ -20,7 +21,24 @@ export function useNoteUpdateQueue({
 }) {
   const [isQueueReady, setIsQueueReady] = useState(false);
   const [sync] = useState(
-    () => new NoteSync({ save: saveNoteUpdate, remove: deleteNote }),
+    () =>
+      new NoteSync({
+        save: saveNoteUpdate,
+        remove: deleteNote,
+        create: async (note) => {
+          await auth.authStateReady();
+          const user = auth.currentUser;
+          if (note.author_id && user?.uid !== note.author_id)
+            throw new NoteSaveError(
+              "Sign in to the account that created this draft to save it.",
+              401,
+            );
+          await createNote(
+            note,
+            note.author_id && user ? await user.getIdToken() : null,
+          );
+        },
+      }),
   );
   const status = useSyncExternalStore(
     sync.subscribe,

@@ -8,16 +8,10 @@ import type { NoteSync } from "@/lib/note-sync";
 type Props = {
   sync: NoteSync;
   status: ReturnType<NoteSync["getSnapshot"]>;
-  connected: boolean;
   onRestore: (note: NoteData) => void;
 };
 
-export default function SyncStatus({
-  sync,
-  status,
-  connected,
-  onRestore,
-}: Props) {
+export default function SyncStatus({ sync, status, onRestore }: Props) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -41,64 +35,60 @@ export default function SyncStatus({
     };
   }, [open]);
   const attention = status.problems.length + status.failedDeletes.length;
-  const label = attention
-    ? `Review changes (${attention})`
-    : status.pending && status.storageError
-      ? "Keep tab open"
-      : status.saving
-        ? "Saving…"
-        : status.pending
-          ? "Waiting to sync"
-          : !connected
-            ? "Offline"
-            : null;
-  const lastDelete = status.pendingDeletes.at(-1);
+  const label = attention ? `Review changes (${attention})` : null;
+  const lastDelete = status.pendingDeletes
+    .filter((entry) => entry.dueAt > Date.now())
+    .at(-1);
   const buttonClass =
     "min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-indigo-500";
   if (!label && !lastDelete && !open) return null;
   return (
     <aside
       ref={container}
-      className="absolute left-3 z-[65] max-w-[calc(100vw-1.5rem)] sm:left-4"
-      style={{ top: "calc(max(0.75rem, env(safe-area-inset-top)) + 3.75rem)" }}
+      className="absolute right-3 z-[65] max-w-[calc(100vw-1.5rem)] sm:right-4"
+      style={{
+        bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 5rem)",
+      }}
       aria-label="Note sync"
     >
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls="board-status-details"
-          onClick={() => setOpen((current) => !current)}
-          className="flex min-h-11 items-center gap-1.5 rounded-lg bg-white/95 px-2.5 text-xs text-gray-600 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
-        >
-          {(label || open) && (
-            <span
-              role="status"
-              className={
-                attention || (status.pending && status.storageError)
-                  ? "font-medium text-amber-800"
-                  : "text-gray-500"
-              }
-            >
-              {label || "Save status"}
-            </span>
-          )}
-          <ChevronDown
-            aria-hidden="true"
-            className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
-          />
-        </button>
+      <div className="flex items-center justify-end gap-2">
+        {(label || open) && (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls="board-status-details"
+            aria-label={label || "Review note changes"}
+            onClick={() => setOpen((current) => !current)}
+            className="flex min-h-11 items-center gap-1.5 rounded-lg bg-white/95 px-2.5 text-xs text-gray-600 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
+          >
+            {(label || open) && (
+              <span
+                role="status"
+                className={
+                  attention || (status.pending && status.storageError)
+                    ? "font-medium text-amber-800"
+                    : "text-gray-500"
+                }
+              >
+                {label || "Save status"}
+              </span>
+            )}
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+        )}
         {!open && lastDelete && (
           <button
             type="button"
-            disabled={lastDelete.dueAt <= Date.now()}
-            className="min-h-11 rounded-lg bg-white/95 px-3 text-xs font-medium text-gray-700 shadow-sm disabled:text-gray-400 focus-visible:outline-2 focus-visible:outline-indigo-500"
+            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] md:pointer-fine:bottom-auto md:pointer-fine:top-[calc(max(1rem,env(safe-area-inset-top))+4rem)] min-h-11 rounded-lg bg-white/95 px-3 text-xs font-medium text-gray-700 shadow-sm focus-visible:outline-2 focus-visible:outline-indigo-500"
             onClick={() => {
               sync.undoDelete(lastDelete.note.id);
               onRestore(lastDelete.note);
             }}
           >
-            {lastDelete.dueAt <= Date.now() ? "Deleting…" : "Undo"}
+            Undo
           </button>
         )}
       </div>
@@ -187,6 +177,14 @@ export default function SyncStatus({
                   </label>
                 )}
                 <div className="flex flex-wrap gap-2">
+                  {!problem.remote && (
+                    <button
+                      className={buttonClass}
+                      onClick={() => sync.retry(problem.id)}
+                    >
+                      Retry save
+                    </button>
+                  )}
                   {problem.remote && (
                     <button
                       className={buttonClass}

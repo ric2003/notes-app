@@ -1,6 +1,10 @@
 const PREFIX = "notesQueue:";
 const SESSION_KEY = "notesQueueId";
-const KEYS = ["notesAppPendingUpdates", "notesAppPendingDeletes"];
+const KEYS = [
+  "notesAppPendingCreates",
+  "notesAppPendingUpdates",
+  "notesAppPendingDeletes",
+];
 export type QueueStorage = Pick<Storage, "getItem" | "setItem">;
 export type QueueLease = {
   id: string;

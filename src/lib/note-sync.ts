@@ -1,5 +1,5 @@
 import type { QueueStorage } from "./tab-queue-storage";
-import type { NoteData } from "./notes";
+import { normalizeNoteRecord, type NoteData } from "./notes";
 import { parsePendingUpdates } from "./pending-note-updates";
 
 export type NoteUpdate = Partial<NoteData> & { expected_content?: string };
@@ -29,15 +29,18 @@ type Snapshot = {
   storageError: boolean;
 };
 type Options = {
+  create?: (note: NoteData) => Promise<void>;
   save: (id: string, updates: NoteUpdate) => Promise<void>;
   remove: (id: string) => Promise<void>;
   now?: () => number;
 };
+const CREATE_KEY = "notesAppPendingCreates";
 const UPDATE_KEY = "notesAppPendingUpdates";
 const DELETE_KEY = "notesAppPendingDeletes";
 
 // All writes for a note pass through this queue, including retries and deletes.
 export class NoteSync {
+  private creations = new Map<string, NoteData>();
   private updates = new Map<string, NoteUpdate>();
   private deletions = new Map<string, Deletion>();
   private removed = new Set<string>();
@@ -70,12 +73,21 @@ export class NoteSync {
   };
 
   start(storage?: QueueStorage) {
-    const hadEdits = this.updates.size > 0;
+    const hadEdits = this.updates.size > 0 || this.creations.size > 0;
     clearTimeout(this.timer);
     this.storage = storage;
     this.active = true;
     this.storageError = !storage;
     try {
+      const drafts = JSON.parse(storage?.getItem(CREATE_KEY) ?? "[]");
+      if (Array.isArray(drafts)) {
+        for (const draft of drafts) {
+          if (typeof draft?.id !== "string") continue;
+          const note = normalizeNoteRecord(draft.id, draft);
+          if (note && !this.creations.has(note.id))
+            this.creations.set(note.id, note);
+        }
+      }
       const stored = storage?.getItem(UPDATE_KEY);
       if (stored)
         this.updates = new Map([
@@ -113,6 +125,7 @@ export class NoteSync {
   private emit() {
     this.snapshot = {
       pending:
+        this.creations.size +
         this.updates.size +
         [...this.deletions.values()].filter((d) => !d.failed).length,
       saving: this.running.size,
@@ -127,6 +140,10 @@ export class NoteSync {
   private persist() {
     try {
       if (!this.storage) throw new Error("Storage unavailable");
+      this.storage.setItem(
+        CREATE_KEY,
+        JSON.stringify([...this.creations.values()]),
+      );
       this.storage.setItem(UPDATE_KEY, JSON.stringify([...this.updates]));
       this.storage.setItem(
         DELETE_KEY,
@@ -137,6 +154,12 @@ export class NoteSync {
       this.storageError = true;
     }
     this.emit();
+  }
+
+  create(note: NoteData) {
+    this.creations.set(note.id, note);
+    this.persist();
+    this.schedule(0);
   }
 
   update(id: string, update: NoteUpdate) {
@@ -152,7 +175,11 @@ export class NoteSync {
       merged.expected_content = previous.expected_content;
     this.updates.set(id, merged);
     const problem = this.problems.get(id);
-    if (problem) this.problems.set(id, { ...problem, updates: merged });
+    if (problem)
+      this.problems.set(id, {
+        ...problem,
+        updates: { ...problem.updates, ...merged },
+      });
     this.persist();
     this.schedule(750);
   }
@@ -183,6 +210,12 @@ export class NoteSync {
     this.schedule(0);
   }
 
+  retry(id: string) {
+    this.problems.delete(id);
+    this.emit();
+    this.schedule(0);
+  }
+
   resolve(id: string, useLocal: boolean) {
     const problem = this.problems.get(id);
     if (!problem) return;
@@ -194,6 +227,10 @@ export class NoteSync {
       delete next.expected_content;
       delete next.edited_at;
     }
+    if (!problem.remote && this.creations.has(id)) {
+      this.creations.delete(id);
+      this.removed.add(id);
+    }
     if (!problem.remote || Object.keys(next).length === 0)
       this.updates.delete(id);
     else this.updates.set(id, next);
@@ -203,7 +240,11 @@ export class NoteSync {
   }
 
   merge = (notes: NoteData[]) => {
-    const visible = notes.filter(
+    const combined = [...notes];
+    for (const note of this.creations.values()) {
+      if (!combined.some((n) => n.id === note.id)) combined.push(note);
+    }
+    const visible = combined.filter(
       (n) =>
         !this.removed.has(n.id) &&
         (!this.deletions.has(n.id) || this.deletions.get(n.id)?.failed),
@@ -223,13 +264,17 @@ export class NoteSync {
   }
 
   flush = async () => {
-    const ids = new Set([...this.updates.keys(), ...this.deletions.keys()]);
+    const ids = new Set([
+      ...this.creations.keys(),
+      ...this.updates.keys(),
+      ...this.deletions.keys(),
+    ]);
     await Promise.all([...ids].map((id) => this.run(id)));
     if (!this.active) return;
     const deadlines = [...this.deletions.values()]
       .filter((d) => !d.failed)
       .map((d) => Math.max(0, d.dueAt - this.now()));
-    const retryable = [...this.updates.keys()].some(
+    const retryable = [...this.creations.keys(), ...this.updates.keys()].some(
       (id) => !this.problems.has(id) && !this.deletions.has(id),
     );
     if (retryable || deadlines.length)
@@ -243,7 +288,9 @@ export class NoteSync {
     if (
       deletion?.failed ||
       (deletion && deletion.dueAt > this.now()) ||
-      (!deletion && (!this.updates.has(id) || this.problems.has(id)))
+      (!deletion &&
+        ((!this.updates.has(id) && !this.creations.has(id)) ||
+          this.problems.has(id)))
     )
       return Promise.resolve();
     // Defer work until the lock is installed, including synchronous adapter failures.
@@ -255,6 +302,7 @@ export class NoteSync {
             if (deletion.failed || deletion.dueAt > this.now()) break;
             try {
               await this.options.remove(id);
+              this.creations.delete(id);
               this.removed.add(id);
               this.updates.delete(id);
               this.problems.delete(id);
@@ -264,6 +312,29 @@ export class NoteSync {
             }
             this.persist();
             break;
+          }
+          const draft = this.creations.get(id);
+          if (draft) {
+            try {
+              if (!this.options.create) throw new Error("Creation unavailable");
+              await this.options.create(draft);
+              this.creations.delete(id);
+              this.persist();
+            } catch (error) {
+              if (
+                error instanceof NoteSaveError &&
+                [400, 401, 403, 409].includes(error.status)
+              ) {
+                this.problems.set(id, {
+                  id,
+                  updates: { ...draft, ...this.updates.get(id) },
+                  message: error.message,
+                });
+              }
+              this.emit();
+              break;
+            }
+            continue;
           }
           const sent = this.updates.get(id);
           if (!sent || this.problems.has(id)) break;

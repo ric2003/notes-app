@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type CreateNotePayload = {
+  id?: string;
   content?: string;
   color?: string;
   position_x?: number;
@@ -139,20 +140,28 @@ export async function POST(req: Request) {
       edited_at: { ".sv": "timestamp" },
     };
 
-    // Create new note to get a generated key
-    const createRes = await fetch(buildDbUrl("notes.json", authToken), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!createRes.ok) {
-      throw new Error(`RTDB POST failed with status ${createRes.status}`);
+    // A stable client ID lets retries recover a lost response without duplicating
+    // the card. Conditional creation must never overwrite an existing note.
+    let newId = body.id;
+    const createRes = await fetch(
+      buildDbUrl(newId ? `notes/${newId}.json` : "notes.json", authToken),
+      {
+        method: newId ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(newId ? { "if-match": "null_etag" } : {}),
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!createRes.ok && !(newId && createRes.status === 412)) {
+      throw new Error(`RTDB creation failed with status ${createRes.status}`);
     }
-    const createData = (await createRes.json()) as { name?: string };
-    const newId = createData.name;
     if (!newId) {
-      throw new Error("RTDB did not return a generated key");
+      const createData = (await createRes.json()) as { name?: string };
+      newId = createData.name;
     }
+    if (!newId) throw new Error("RTDB did not return a generated key");
 
     // Read back to resolve timestamps
     const readRes = await fetch(buildDbUrl(`notes/${newId}.json`), {

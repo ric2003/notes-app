@@ -89,3 +89,26 @@ test("release one queues migrate once without overwriting existing tab work", as
   assert.equal(local.getItem("notesAppPendingUpdates"), null);
   lease.release();
 });
+
+test("a closed tab containing only an unsaved new card is recovered", async () => {
+  const local = storage(),
+    lock = locks();
+  const opts = {
+    local,
+    session: storage(),
+    locks: lock,
+    uuid: () => "draft-tab",
+  };
+  const first = await acquireQueue(opts);
+  first.storage.setItem(
+    "notesAppPendingCreates",
+    '[{"id":"new-card","content":""}]',
+  );
+  first.release();
+  await Promise.resolve();
+  await Promise.resolve();
+  const recovered = await acquireQueue({ ...opts, session: storage() }, true);
+  assert.equal(recovered.id, first.id);
+  assert.match(recovered.storage.getItem("notesAppPendingCreates"), /new-card/);
+  recovered.release();
+});

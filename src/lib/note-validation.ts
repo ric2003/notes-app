@@ -66,7 +66,7 @@ export function validateNoteInput(
     "position_y",
     "width",
     "height",
-    ...(create ? ["author_id"] : ["expected_content", "edited_at"]),
+    ...(create ? ["id", "author_id"] : ["expected_content", "edited_at"]),
   ]);
   for (const key of Object.keys(body))
     if (!allowed.has(key))
@@ -109,6 +109,8 @@ export function validateNoteInput(
     )
       throw new NoteInputError(`Invalid note ${key}`);
   }
+  if (create && body.id !== undefined && !isDatabaseKey(body.id))
+    throw new NoteInputError("Invalid note ID");
   if (body.author_id != null && !isDatabaseKey(body.author_id))
     throw new NoteInputError("Invalid author ID");
 }

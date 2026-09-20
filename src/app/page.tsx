@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ref, onValue, runTransaction } from "firebase/database";
+import { ref, push, onValue, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import UserProfiles from "@/components/UserProfiles";
 import { ProfileProvider, useProfile } from "@/contexts/ProfileContext";
@@ -44,8 +44,6 @@ function HomeContent() {
   const [isConnected, setIsConnected] = useState(false);
   const { user, profile, profiles } = useProfile();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [isCreating, setIsCreating] = useState(false);
-  const isCreatingRef = useRef(false);
 
   const showToast = useCallback(
     (
@@ -81,11 +79,10 @@ function HomeContent() {
     );
   }, [flush]);
 
-  // A failed delete becomes visible again without waiting for another database event.
+  // Reflect queue recovery, failed deletes and discarded drafts immediately.
   useEffect(() => {
-    if (status.failedDeletes.length)
-      setNotes((previous) => sync.merge(previous));
-  }, [status.failedDeletes, sync]);
+    setNotes((previous) => sync.merge(previous));
+  }, [status, sync]);
 
   const {
     containerRef,
@@ -121,54 +118,36 @@ function HomeContent() {
   // The plus chip previews the color the next note will get
   const [nextColor, setNextColor] = useState<NoteColorName>(pickRandomColor);
 
-  async function createBox(screenX: number, screenY: number) {
-    if (isCreatingRef.current) return;
+  function createBox(screenX: number, screenY: number) {
+    if (!isQueueReady) return;
     if (user && !profile) {
       showToast("Choose your username before creating a note.", "warning");
       return;
     }
-    isCreatingRef.current = true;
-    setIsCreating(true);
-
+    const id = push(ref(db, "notes")).key;
+    if (!id) return;
     const worldCoords = screenToWorld(screenX, screenY);
-    const body = {
+    const note: NoteData = {
+      id,
       content: "",
       color: nextColor,
-      // Center the note around the screen/world point
       position_x: worldCoords.x - CANVAS_NOTE_WIDTH / 2,
       position_y: worldCoords.y - CANVAS_NOTE_HEIGHT / 2,
       width: CANVAS_NOTE_WIDTH,
       height: CANVAS_NOTE_HEIGHT,
-      author_id: user?.uid ?? null,
+      created_at: new Date().toISOString(),
+      ...(user && profile
+        ? {
+            author_id: user.uid,
+            author_username_snapshot: profile.username,
+            author_photo_snapshot: profile.photo_url ?? undefined,
+          }
+        : {}),
     };
-    // Queue up a different shade for the note after this one
+    sync.create(note);
+    setNotes((previous) => sync.merge(previous));
+    setEditingNote(id);
     setNextColor(pickRandomColor());
-
-    try {
-      const authToken = user ? await user.getIdToken() : null;
-      const res = await fetch("/api/notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const data = await res.json();
-      const created = data?.note as NoteData | undefined;
-      if (created) {
-        setNotes((prev) =>
-          prev.some((n) => n.id === created.id) ? prev : [...prev, created],
-        );
-      }
-    } catch (error) {
-      console.error("Error creating note:", error);
-      showToast("Couldn't create note — please try again", "error");
-    } finally {
-      isCreatingRef.current = false;
-      setIsCreating(false);
-    }
   }
 
   useEffect(
@@ -388,7 +367,6 @@ function HomeContent() {
       <SyncStatus
         sync={sync}
         status={status}
-        connected={isConnected}
         onRestore={(note) => {
           setEditingNote(null);
           setNotes((previous) =>
@@ -415,24 +393,18 @@ function HomeContent() {
               createBox(window.innerWidth / 2, window.innerHeight / 2);
             }
           }}
-          disabled={isCreating || !isQueueReady}
-          aria-label={isCreating ? "Creating note" : "Create note"}
+          disabled={!isQueueReady}
+          aria-label="Create note"
           className="group flex h-14 min-w-11 shrink-0 items-center justify-center gap-2 px-3 py-2.5 font-medium text-gray-700 bg-white/95 backdrop-blur-xl border border-white/70 rounded-2xl shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-indigo-500 sm:gap-2.5 sm:px-5"
         >
           <div
             className="p-1 rounded-lg shadow-sm transition-colors duration-300 group-hover:scale-102"
             style={{ backgroundColor: NOTE_COLORS[nextColor].bg }}
           >
-            <PlusIcon
-              className={`w-4 h-4 text-gray-800/70 ${isCreating ? "animate-pulse" : ""}`}
-            />
+            <PlusIcon className="w-4 h-4 text-gray-800/70" />
           </div>
-          <span className="text-sm sm:hidden">
-            {isCreating ? "..." : "Note"}
-          </span>
-          <span className="hidden sm:inline">
-            {isCreating ? "Creating..." : "Create Note"}
-          </span>
+          <span className="text-sm sm:hidden">Note</span>
+          <span className="hidden sm:inline">Create Note</span>
         </button>
 
         <UserProfiles isConnected={isConnected} />

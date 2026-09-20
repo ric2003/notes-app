@@ -278,3 +278,147 @@ test("a conflicted draft is rechecked after reload rather than overwritten", asy
   assert.equal(restored.getSnapshot().problems[0].updates.content, "mine");
   assert.equal(restored.getSnapshot().problems[0].remote.content, "original");
 });
+
+test("new cards render immediately, survive snapshots and serialize edits after creation", async () => {
+  const gate = deferred();
+  const calls = [];
+  const { sync, disk } = setup({
+    create: async (draft) => {
+      calls.push(["create", draft.id]);
+      await gate.promise;
+    },
+    save: async (id, update) => {
+      calls.push(["save", id, update]);
+    },
+  });
+  const draft = { ...note, content: "" };
+  sync.create(draft);
+  assert.deepEqual(sync.merge([]), [draft]);
+  assert.equal(
+    JSON.parse(disk.getItem("notesAppPendingCreates"))[0].id,
+    note.id,
+  );
+  const saving = sync.flush();
+  await Promise.resolve();
+  sync.update(note.id, {
+    content: "typed immediately",
+    expected_content: "",
+    position_x: 90,
+  });
+  assert.equal(sync.merge([])[0].content, "typed immediately");
+  assert.equal(sync.merge([draft]).length, 1);
+  assert.equal(calls.length, 1);
+  gate.resolve();
+  await saving;
+  assert.deepEqual(calls, [
+    ["create", note.id],
+    [
+      "save",
+      note.id,
+      {
+        content: "typed immediately",
+        expected_content: "",
+        position_x: 90,
+      },
+    ],
+  ]);
+  assert.equal(sync.getSnapshot().pending, 0);
+});
+
+test("offline creations and edits survive reload and retry with the same ID", async () => {
+  const { sync, disk } = setup({
+    create: async () => {
+      throw Error("offline");
+    },
+  });
+  sync.create({ ...note, content: "" });
+  sync.update(note.id, { content: "keep this draft", expected_content: "" });
+  await sync.flush();
+  const calls = [];
+  const recovered = setup(
+    {
+      create: async (draft) => calls.push(["create", draft.id]),
+      save: async (id, update) => calls.push(["save", id, update.content]),
+    },
+    disk,
+  ).sync;
+  assert.equal(recovered.merge([])[0].content, "keep this draft");
+  await recovered.flush();
+  assert.deepEqual(calls, [
+    ["create", note.id],
+    ["save", note.id, "keep this draft"],
+  ]);
+});
+
+test("deleting a card during creation waits for creation and discards queued edits", async () => {
+  const gate = deferred();
+  const calls = [];
+  let now = 0;
+  const { sync } = setup({
+    now: () => now,
+    create: async () => {
+      calls.push("create");
+      await gate.promise;
+    },
+    save: async () => calls.push("save"),
+    remove: async () => calls.push("delete"),
+  });
+  sync.create(note);
+  const saving = sync.flush();
+  await Promise.resolve();
+  sync.update(note.id, { content: "draft" });
+  sync.delete(note);
+  assert.deepEqual(sync.merge([]), []);
+  now = 7000;
+  gate.resolve();
+  await saving;
+  assert.deepEqual(calls, ["create", "delete"]);
+  assert.equal(sync.getSnapshot().pending, 0);
+});
+
+test("multiple new cards can save concurrently and undo restores an unsaved card", async () => {
+  const gate = deferred();
+  const calls = [];
+  const { sync } = setup({
+    create: async (draft) => {
+      calls.push(draft.id);
+      await gate.promise;
+    },
+  });
+  sync.create(note);
+  sync.create({ ...note, id: "n2" });
+  sync.delete(note);
+  sync.undoDelete(note.id);
+  assert.equal(sync.merge([]).length, 2);
+  const saving = sync.flush();
+  await Promise.resolve();
+  assert.deepEqual(calls, ["n1", "n2"]);
+  gate.resolve();
+  await saving;
+});
+
+test("rejected creation preserves text for retry or discards the local card", async () => {
+  let rejected = true;
+  const { sync } = setup({
+    create: async () => {
+      if (rejected) throw new NoteSaveError("Sign in again", 401);
+    },
+  });
+  sync.create({ ...note, content: "" });
+  sync.update(note.id, { content: "keep my text", expected_content: "" });
+  await sync.flush();
+  assert.equal(sync.getSnapshot().problems[0].updates.content, "keep my text");
+  assert.equal(sync.merge([])[0].content, "keep my text");
+  rejected = false;
+  sync.retry(note.id);
+  await sync.flush();
+  assert.equal(sync.getSnapshot().problems.length, 0);
+  assert.equal(sync.getSnapshot().pending, 0);
+
+  rejected = true;
+  sync.create({ ...note, id: "n2" });
+  await sync.flush();
+  sync.resolve("n2", false);
+  assert.deepEqual(sync.merge([{ ...note, id: "n2" }]), []);
+  assert.equal(sync.getSnapshot().pending, 0);
+});
